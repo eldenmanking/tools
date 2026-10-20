@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Mock `gh` for PR-statusline tests.
+
+Reads $GH_MOCK_FIXTURE (JSON). Top-level keys are space-joined argv prefixes
+(e.g. "pr view feat-x"); values are either a string (stdout, exit 0) or
+{"stdout": "...", "exit_code": N}. Longest-prefix match wins. Records every
+invocation to $GH_MOCK_LOG (one TAB-separated line per call: pwd \t argv).
+Returns exit 0 with empty stdout on no match (gh's typical "not found" shape).
+"""
+import json
+import os
+import sys
+
+argv = sys.argv[1:]
+joined = " ".join(argv)
+
+log = os.environ.get("GH_MOCK_LOG")
+if log:
+    with open(log, "a") as f:
+        f.write(f"{os.getcwd()}\t{joined}\n")
+
+fixture_path = os.environ.get("GH_MOCK_FIXTURE")
+if not fixture_path or not os.path.exists(fixture_path):
+    sys.exit(0)
+
+with open(fixture_path) as f:
+    rules = json.load(f)
+
+best_key = None
+for key in rules:
+    if joined == key or joined.startswith(key + " "):
+        if best_key is None or len(key) > len(best_key):
+            best_key = key
+
+if best_key is None:
+    sys.exit(0)
+
+rule = rules[best_key]
+if isinstance(rule, str):
+    sys.stdout.write(rule)
+    sys.exit(0)
+
+stdout = rule.get("stdout", "")
+exit_code = rule.get("exit_code", 0)
+sys.stdout.write(stdout)
+sys.exit(exit_code)

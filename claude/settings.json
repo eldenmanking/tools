@@ -1,0 +1,38 @@
+{
+  "env": {
+    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"
+  },
+  "tui": "fullscreen",
+  "permissions": {
+    "allow": [
+      "Bash(bash ~/.claude/scripts/pr-state.sh:*)"
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/scripts/statusline.sh"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|mcp__github__create_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/post-push-ci.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/stop-ci-check.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

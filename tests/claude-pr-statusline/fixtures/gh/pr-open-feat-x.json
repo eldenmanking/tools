@@ -1,0 +1,3 @@
+{
+  "pr view feat-x --json url,baseRefName,headRefName,number,state": "{\"url\":\"https://github.com/o/r/pull/100\",\"baseRefName\":\"develop\",\"headRefName\":\"feat-x\",\"number\":100,\"state\":\"OPEN\"}"
+}

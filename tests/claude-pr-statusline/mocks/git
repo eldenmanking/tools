@@ -1,0 +1,29 @@
+#!/bin/bash
+# Mock `git`: passes through to real git, except `git push` no-ops and logs.
+# This keeps `git rev-parse`, `symbolic-ref`, etc. authentic.
+
+if [ "${1:-}" = "push" ]; then
+  if [ -n "$GIT_PUSH_LOG" ]; then
+    printf '%s\t%s\n' "$PWD" "$*" >> "$GIT_PUSH_LOG"
+  fi
+  exit 0
+fi
+
+# Find real git on PATH excluding our mock dir.
+REAL_GIT=""
+IFS=':' read -ra _PARTS <<< "$PATH"
+for p in "${_PARTS[@]}"; do
+  if [ -x "$p/git" ] && [ "$(readlink -f "$p/git" 2>/dev/null || echo "$p/git")" != "$(readlink -f "$0" 2>/dev/null || echo "$0")" ]; then
+    case "$p/git" in
+      "$(dirname "$0")/git") continue ;;
+    esac
+    REAL_GIT="$p/git"
+    break
+  fi
+done
+
+if [ -z "$REAL_GIT" ]; then
+  REAL_GIT=/usr/bin/git
+fi
+
+exec "$REAL_GIT" "$@"
