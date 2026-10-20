@@ -1,5 +1,5 @@
 # tools
-Shared Claude Code configuration: the global CLAUDE.md, skills, hook and statusline scripts, and settings. The [dotfiles](https://github.com/eldenmanking/dotfiles) installer (`./install.sh --variant <name> --claude`) clones this repo and installs it into `~/.claude`. To use a fork or local checkout instead, see the dotfiles README.
+Tools, investigations, and useful AI config. Shared Claude Code configuration: the global CLAUDE.md, skills, hook and statusline scripts, and settings. The [dotfiles](https://github.com/eldenmanking/dotfiles) installer (`./install.sh --variant <name> --claude`) clones this repo and installs it into `~/.claude`. To use a fork or local checkout instead, see the dotfiles README.
 
 ```
 .
