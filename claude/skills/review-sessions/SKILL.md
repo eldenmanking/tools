@@ -18,6 +18,8 @@ D=~/.claude/skills/review-sessions/digest.py
 python3 $D list   [--days N] [--project SUBSTR] [--limit N] [--exclude ID]  # one entry per session: turns, interrupts, errors, skills, first prompt
 python3 $D show   <session-id-prefix> [--width N]                          # condensed timeline: USER / CMD / INTERRUPT / CLAUDE / tool / ERROR / SKILL lines
 python3 $D skills [--days N] [--project SUBSTR] [--exclude ID]             # per-skill uses and the steering that followed each use
+python3 $D events   FILE...                                               # cloud: timeline from saved list_events pages
+python3 $D sessions FILE...                                               # cloud: one entry per session from saved list_sessions pages
 ```
 
 ## Step 1: Scope
@@ -36,6 +38,8 @@ Use this instead of `digest.py` for Steps 1 and 3. Everything these tools return
 - **The user's messages:** `user` events whose payload has `client_platform` and whose `message.content` is a string. Text starting `[Request interrupted by user` is an interruption. `<command-name>/x</command-name>` is a slash command that runs skill `x`.
 - **Tool results:** `user` events whose `message.content` is a list of `tool_result` blocks. Note only those with `is_error: true` and skim past the rest; they are most of the volume.
 - **Claude:** `assistant` events with `text` and `tool_use` blocks. A `Skill` tool_use (`input.skill`) or a `Read` of a `.../skills/<name>/SKILL.md` file is a skill use. For skill iteration, count the user's messages, corrections and interruptions between a skill use and the next skill use or the end of the session.
+
+When a `list_events` or `list_sessions` result is too large and is saved to a file, don't page through the file by hand. Run `python3 $D events FILE...` (one file per page, any order) for the same condensed USER / CLAUDE / tool / ERROR / SKILL timeline as `show`, or `python3 $D sessions FILE...` for one entry per session with its repos and summary.
 
 Read the kept sessions through `Agent` subagents, a few sessions each. Tell each subagent the event layout above and Step 3's checklist, and ask it to return findings only: session id and title, quoted user messages, and skill runs with what the user had to correct. Don't ask for transcript summaries. If subagents can't call the `claude-code-remote` tools, read the sessions yourself, one at a time, keeping notes only of findings.
 
