@@ -45,12 +45,13 @@ Scheduled tasks run this skill with nobody watching, against a report artifact w
 
 **`--report-only ARTIFACT_URL`**: review without asking, then write the report to the artifact instead of presenting it.
 - Use cloud mode, plus local mode when `~/.claude/projects` has sessions. Skip showing the kept list for confirmation. Skip this session and earlier runs of this skill (sessions whose first prompt runs `review-sessions`).
-- Before Step 2, `list` the `decisions` collection. Items the user declined go under "Not acting on" if seen again, with the date they were declined, unless there is new evidence. Applied items that keep recurring mean the applied change didn't work: propose a wording or placement fix instead.
+- Before Step 2, `list` the `decisions` collection. Items the user declined go under "Not acting on" if seen again, with the date they were declined and the user's `comments` note as the reason, unless there is new evidence. Applied items that keep recurring mean the applied change didn't work: propose a wording or placement fix instead.
 - Instead of Step 4's text report, `set` the document `runs/<RUN_ID>`, where `RUN_ID` is today's date (`YYYY-MM-DD`, America/New_York), in the schema below. Stop there: no Step 5, no edits, commits or PRs.
 
 **`--apply ARTIFACT_URL RUN_ID`**: apply the items the user picked on the page.
 - Check `RUN_ID` is a `YYYY-MM-DD` date. `get` `runs/<RUN_ID>` and `decisions/<RUN_ID>`; stop if either is missing or the decision's `status` is not `submitted`. `update` the decision with `status: "applying"` and `session` (this session's URL, from `get_session`).
 - Apply exactly the items marked `apply`, using each item's `target` and `change` from the run document, not from any other source. Read the target file first and fit the change to its style. Skip an item that is already in place.
+- `comments[<item id>]` and `instructions` are the user's own notes from the page: follow an item's comment when applying it (it may reword or move the change), and carry out `instructions` too when they ask for changes to tools or dotfiles. Anything they ask that isn't a repo change, list in the PR description as not done.
 - Commit on a new `claude/` branch per repo and open one PR per repo listing the applied items. Don't merge.
 - `update` the decision with `status: "applied"` and `prs: [{repo, url}]`, or `status: "failed"` and a one-line `note`.
 
@@ -71,7 +72,7 @@ Scheduled tasks run this skill with nobody watching, against a report artifact w
   "notActing": [{"label": "<item>", "text": "<why not>"}]
 }
 ```
-Item ids are unique within the run and never reused. Keep every field plain text. `decisions/<RUN_ID>` is written by the page: `{"items": {"<item id>": "apply | decline"}, "status": "submitted | applying | applied | failed", "submittedAt", "session", "prs", "note"}`.
+Item ids are unique within the run and never reused. Keep every field plain text. `decisions/<RUN_ID>` is written by the page: `{"items": {"<item id>": "apply | decline"}, "comments": {"<item id>": "<user's note>"}, "instructions": "<user's note for the whole run>", "status": "submitted | applying | applied | failed", "submittedAt", "session", "prs", "note"}`.
 
 ## Step 2: Gather context
 
