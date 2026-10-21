@@ -41,6 +41,11 @@
 - When retargeting a stacked PR (e.g. after a parent PR merges), update the stack list in the description accordingly.
 
 
+## Design
+- Prefer the simplest, most idiomatic design. Before adding polling, generated files or complex awk/sed, offer a simpler alternative.
+- Degrade gracefully (fall back to default behavior with a warning) rather than failing hard.
+- Don't remove existing functions or behavior that aren't part of the ask.
+
 ## Commenting
 - Write comments where code needs documenting (e.g. javadocs), matching the surrounding code's comment style and density.
 - Keep comments brief and clear: say what the code can't, in as few words as possible.
