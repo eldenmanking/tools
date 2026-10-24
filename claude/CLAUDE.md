@@ -41,9 +41,6 @@
 - When retargeting a stacked PR (e.g. after a parent PR merges), update the stack list in the description accordingly.
 
 
-## Personal config repos
-- The dotfiles and tools repos are public: never copy company-specific details (names, hostnames, URLs, repo names) into them.
-
 ## Design
 - Prefer the simplest, most idiomatic design. Before adding polling, generated files or complex awk/sed, offer a simpler alternative.
 - Degrade gracefully (fall back to default behavior with a warning) rather than failing hard.
