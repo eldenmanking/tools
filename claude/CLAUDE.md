@@ -41,6 +41,9 @@
 - When retargeting a stacked PR (e.g. after a parent PR merges), update the stack list in the description accordingly.
 
 
+## Personal config repos
+- The dotfiles and tools repos (and other personal config repos) are public. When editing them, or copying config into them from another repo, never include company-specific information: company, team or product names, internal hostnames, domains, URLs, repo or org names, ticket IDs, Slack channels, or details of internal tooling, including in commit messages, branch names and PR text. Generalize it, or suggest keeping it in local unversioned config or a private tools repo.
+
 ## Design
 - Prefer the simplest, most idiomatic design. Before adding polling, generated files or complex awk/sed, offer a simpler alternative.
 - Degrade gracefully (fall back to default behavior with a warning) rather than failing hard.

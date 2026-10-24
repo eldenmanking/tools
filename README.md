@@ -3,6 +3,8 @@ Tools, investigations, and useful AI config. Shared Claude Code configuration: t
 
 ```
 .
+├── .claude
+│   └── CLAUDE.md          --- Claude Code instructions for working in this repo
 ├── claude
 │   ├── CLAUDE.md          --- global instructions, inserted into ~/git/.claude/CLAUDE.md between "Added by dotfiles" markers
 │   ├── scripts            --- hook/statusline scripts, each symlinked into ~/.claude/scripts
