@@ -42,7 +42,7 @@
 
 
 ## Personal config repos
-- The dotfiles and tools repos (and other personal config repos) are public. When editing them, or copying config into them from another repo, never include company-specific information: company, team or product names, internal hostnames, domains, URLs, repo or org names, ticket IDs, Slack channels, or details of internal tooling, including in commit messages, branch names and PR text. Generalize it, or suggest keeping it in local unversioned config or a private tools repo.
+- The dotfiles and tools repos are public: never copy company-specific details (names, hostnames, URLs, repo names) into them.
 
 ## Design
 - Prefer the simplest, most idiomatic design. Before adding polling, generated files or complex awk/sed, offer a simpler alternative.
