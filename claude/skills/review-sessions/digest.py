@@ -4,8 +4,12 @@
   digest.py list   [--root DIR] [--project SUBSTR] [--days N] [--limit N] [--exclude ID]
   digest.py show   SESSION [--root DIR] [--width N]
   digest.py skills [--root DIR] [--project SUBSTR] [--days N] [--exclude ID]
+  digest.py events FILE... [--width N]
+  digest.py sessions FILE...
 
 SESSION is a session id (or unique prefix) or a path to a .jsonl file.
+`events` and `sessions` read cloud session data saved to files: list_events and list_sessions results
+(claude-code-remote MCP tools), one page per file, as the raw JSON or as the tool's list of text blocks.
 """
 import argparse
 import json
@@ -208,6 +212,73 @@ def resolve(root, session):
     return matches[0]
 
 
+def load_saved(path):
+    """Parse a saved MCP tool result, unwrapping a [{"type": "text", "text": "<json>"}] block list."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        data = json.load(f)
+    if isinstance(data, list) and data and all(isinstance(b, dict) and b.get("type") == "text" for b in data):
+        data = json.loads("".join(b.get("text", "") for b in data))
+    return data
+
+
+def saved_items(paths, keys):
+    """Items from each saved page: the first list found under one of keys (or the page itself), deduplicated by id."""
+    items, seen = [], set()
+    for path in paths:
+        data = load_saved(path)
+        page = data if isinstance(data, list) else next(
+            (data[k] for k in keys if isinstance(data.get(k), list)), [])
+        for item in page:
+            key = item.get("id") if isinstance(item, dict) else None
+            if key is not None and key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+    return items
+
+
+def timestamp(item):
+    return str(item.get("created_at") or item.get("timestamp") or "")
+
+
+def cloud_entry(event):
+    """A list_events event as a transcript entry, or None. Only user messages with client_platform were typed."""
+    for kind in ("user", "assistant"):
+        payload = (event.get(kind) or {}).get("internal_anthropic_catchall")
+        if not isinstance(payload, dict):
+            continue
+        content = (payload.get("message") or {}).get("content")
+        if kind == "user" and not payload.get("client_platform") and not is_tool_result(content):
+            return None
+        return dict(payload, type=kind)
+    return None
+
+
+def cmd_events(args):
+    evts = sorted(saved_items(args.files, ("events", "data")), key=timestamp)
+    print_events(events([e for e in map(cloud_entry, evts) if e]), args.width)
+
+
+def cmd_sessions(args):
+    for s in saved_items(args.files, ("sessions", "data")):
+        ctx = s.get("session_context") or {}
+        repos = sorted({u for src in ctx.get("sources") or [] for u in strings(src) if "/" in u})
+        print("%s  %s  %s" % (s.get("id"), str(s.get("updated_at") or s.get("created_at") or "")[:16],
+                              one_line(s.get("title") or "", 120)))
+        print("    repos=%s" % (",".join(repos) or "-"))
+        if s.get("post_turn_summary"):
+            print("    > %s" % one_line(s["post_turn_summary"], 200))
+
+
+def strings(value):
+    """Every string inside a JSON value."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        value = list(value.values())
+    return [s for v in value for s in strings(v)] if isinstance(value, list) else []
+
+
 def cmd_list(args):
     paths = find_sessions(args.root, args.project, args.days, args.exclude)[: args.limit]
     if not paths:
@@ -227,12 +298,15 @@ def cmd_show(args):
     m = meta(path, load(path))
     print("# %s\ncwd=%s branch=%s start=%s end=%s turns=%d interrupts=%d errors=%d\n"
           % (m["id"], m["cwd"], m["branch"], m["start"], m["end"], m["human_turns"], m["interrupts"], m["errors"]))
+    print_events(m["events"], args.width)
+
+
+def print_events(evts, width):
     labels = {"human": "USER", "command": "CMD", "interrupt": "INTERRUPT", "assistant": "CLAUDE",
               "tool": "  tool", "error": "  ERROR", "skill": "SKILL"}
-    for kind, val in m["events"]:
+    for kind, val in evts:
         # Human words are the main signal, so keep them whole; abbreviate everything else.
-        width = args.width * 4 if kind in ("human", "command") else args.width
-        print("%s: %s" % (labels[kind], one_line(val, width)))
+        print("%s: %s" % (labels[kind], one_line(val, width * 4 if kind in ("human", "command") else width)))
 
 
 def cmd_skills(args):
@@ -262,6 +336,10 @@ def cmd_skills(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("events")
+    p.add_argument("files", nargs="+")
+    p.add_argument("--width", type=int, default=200)
+    sub.add_parser("sessions").add_argument("files", nargs="+")
     for name in ("list", "show", "skills"):
         p = sub.add_parser(name)
         p.add_argument("--root", default=DEFAULT_ROOT)
@@ -275,7 +353,8 @@ def main():
         if name == "list":
             p.add_argument("--limit", type=int, default=30)
     args = ap.parse_args()
-    {"list": cmd_list, "show": cmd_show, "skills": cmd_skills}[args.cmd](args)
+    {"list": cmd_list, "show": cmd_show, "skills": cmd_skills, "events": cmd_events,
+     "sessions": cmd_sessions}[args.cmd](args)
 
 
 if __name__ == "__main__":

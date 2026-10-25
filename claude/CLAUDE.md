@@ -45,6 +45,7 @@
 - Prefer the simplest, most idiomatic design. Before adding polling, generated files or complex awk/sed, offer a simpler alternative.
 - Degrade gracefully (fall back to default behavior with a warning) rather than failing hard.
 - Don't remove existing functions or behavior that aren't part of the ask.
+- Don't write migration or compatibility code for old formats, markers or files unless asked; handle them case by case.
 
 ## Commenting
 - Write comments where code needs documenting (e.g. javadocs), matching the surrounding code's comment style and density.
