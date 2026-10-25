@@ -33,6 +33,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/tmux-session-id.sh"
+          }
+        ]
+      }
     ]
   }
 }
