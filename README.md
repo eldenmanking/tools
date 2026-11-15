@@ -5,6 +5,9 @@ Tools, investigations, and useful AI config. Shared Claude Code configuration: t
 .
 ├── .claude
 │   └── CLAUDE.md          --- Claude Code instructions for working in this repo
+├── android
+│   └── goals              --- gym-gated app blocker for an e-ink Android tablet (see its README)
+│       └── apps-script    --- Google Sheets backend: schedule lock-in, goals, streak, tokens
 ├── claude
 │   ├── CLAUDE.md          --- global instructions, inserted into ~/git/.claude/CLAUDE.md between "Added by dotfiles" markers
 │   ├── scripts            --- hook/statusline scripts, each symlinked into ~/.claude/scripts
@@ -22,4 +25,5 @@ Create `claude/skills/<name>/SKILL.md` with `name` and `description` frontmatter
 ## Tests
 ```bash
 bash tests/claude-pr-statusline/run.sh
+node --test 'android/goals/apps-script/tests/*.test.js'
 ```
