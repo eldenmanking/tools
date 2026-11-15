@@ -4,7 +4,9 @@
 //   GET  <url>?token=T                    -> status JSON (see computeStatus)
 //   GET  <url>?token=T&action=schedule    -> this week and next, with locks
 //   POST <url>?token=T  body {"action":"saveSchedule","weekStart":"2026-11-22",
-//                             "days":["Rest","Push","Pull",...]}  (Sunday first)
+//                             "days":["Rest","Upper","Lower",...]}  (Sunday first)
+//   POST <url>?token=T  body {"action":"saveAllowlist","packages":["com.a.b",...]}
+//                             (takes effect tomorrow)
 //
 // "Today" is always the server's date in the spreadsheet's time zone. Only when
 // the script property ALLOW_FAKE_TODAY is "true" does ?today=yyyy-mm-dd
@@ -13,19 +15,22 @@
 var EXERCISE_TAB = 'Exercise';
 var GOALS_TAB = 'Gate Goals';
 var SCHEDULE_TAB = 'Gate Schedule';
+var ALLOWLIST_TAB = 'Gate Allowlist';
 
-// Run once from the editor: creates the two gate tabs if missing and a secret
+// Run once from the editor: creates the gate tabs if missing and a secret
 // token, then logs the token (View > Logs).
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss.getSheetByName(GOALS_TAB)) {
     var g = ss.insertSheet(GOALS_TAB);
-    g.getRange(1, 1, 1, 3).setValues([['Workout', 'Section', 'Min exercises']]);
-    // Examples matching the Exercise tab's sections (Push, Pull, Legs, Core,
-    // Cardio, Free, Stretch); edit to taste. All rows of a workout must be met.
-    g.getRange(2, 1, 5, 3).setValues([
-      ['Upper', 'Push', 2], ['Upper', 'Pull', 2], ['Upper', 'Core', 1],
-      ['Lower', 'Legs', 3], ['Lower', 'Pull', 1]
+    g.getRange(1, 1, 1, 4).setValues([['Workout', 'Type (Section/Exercise)', 'Name', 'Min exercises']]);
+    // Examples: a Section row names an Exercise tab section (Push, Pull, Legs,
+    // Core, ...); an Exercise row names one exercise without its [unit] suffix.
+    // A workout is done when all its rows are met. Edit to taste.
+    g.getRange(2, 1, 6, 4).setValues([
+      ['Upper', 'Section', 'Push', 2], ['Upper', 'Section', 'Pull', 2], ['Upper', 'Section', 'Core', 1],
+      ['Lower', 'Section', 'Legs', 3], ['Lower', 'Section', 'Core', 1],
+      ['Skate', 'Exercise', 'Figure skating', '']
     ]);
     g.setFrozenRows(1);
   }
@@ -34,6 +39,12 @@ function setup() {
     s.getRange(1, 1, 1, 2).setValues([['Date (yyyy-mm-dd)', 'Workout']]);
     s.getRange('A:A').setNumberFormat('@'); // keep dates as text, no time zone shifts
     s.setFrozenRows(1);
+  }
+  if (!ss.getSheetByName(ALLOWLIST_TAB)) {
+    var a = ss.insertSheet(ALLOWLIST_TAB);
+    a.getRange(1, 1, 1, 2).setValues([['Effective from (yyyy-mm-dd)', 'Allowed packages (comma-separated)']]);
+    a.getRange('A:A').setNumberFormat('@');
+    a.setFrozenRows(1);
   }
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('TOKEN')) props.setProperty('TOKEN', Utilities.getUuid());
@@ -44,7 +55,7 @@ function doGet(e) {
   return handle_(e, function (data, today) {
     var action = (e.parameter.action || 'status');
     if (action === 'status') {
-      return computeStatus(data.schedule, data.goals, data.exercise, today);
+      return computeStatus(data.schedule, data.goals, data.exercise, today, data.allowlist);
     }
     if (action === 'schedule') {
       var ws = weekStartOf(today);
@@ -65,11 +76,19 @@ function doPost(e) {
   try {
     return handle_(e, function (data, today) {
       var body = JSON.parse((e.postData && e.postData.contents) || '{}');
-      if (body.action !== 'saveSchedule') return { error: 'unknown action ' + body.action };
-      var v = validateSave(data.schedule, data.goals, body.weekStart, body.days, today);
-      if (!v.ok) return { ok: false, errors: v.errors };
-      writeWeek_(v.rows);
-      return { ok: true, week: weekView(readData_().schedule, body.weekStart, today) };
+      if (body.action === 'saveSchedule') {
+        var v = validateSave(data.schedule, data.goals, body.weekStart, body.days, today);
+        if (!v.ok) return { ok: false, errors: v.errors };
+        writeDatedRows_(SCHEDULE_TAB, v.rows);
+        return { ok: true, week: weekView(readData_().schedule, body.weekStart, today) };
+      }
+      if (body.action === 'saveAllowlist') {
+        var a = validateAllowlist(body.packages, today);
+        if (!a.ok) return { ok: false, errors: a.errors };
+        writeDatedRows_(ALLOWLIST_TAB, [a.row]);
+        return { ok: true, effectiveFrom: a.row[0], allowlist: allowlistFor(readData_().allowlist, today) };
+      }
+      return { error: 'unknown action ' + body.action };
     });
   } finally {
     lock.releaseLock();
@@ -119,10 +138,13 @@ function readData_() {
   return {
     exercise: parseExercise(header, ex.slice(2)),
     goals: parseGoals(rowsAfterHeader_(ss.getSheetByName(GOALS_TAB))),
-    schedule: parseSchedule(rowsAfterHeader_(ss.getSheetByName(SCHEDULE_TAB)).map(function (r) {
-      return [cellIso_(r[0], tz) || '', r[1]];
-    }))
+    schedule: parseSchedule(datedRows_(ss.getSheetByName(SCHEDULE_TAB), tz)),
+    allowlist: parseAllowlist(datedRows_(ss.getSheetByName(ALLOWLIST_TAB), tz))
   };
+}
+
+function datedRows_(sheet, tz) {
+  return rowsAfterHeader_(sheet).map(function (r) { return [cellIso_(r[0], tz) || '', r[1]]; });
 }
 
 function rowsAfterHeader_(sheet) {
@@ -131,9 +153,9 @@ function rowsAfterHeader_(sheet) {
   return n < 2 ? [] : sheet.getRange(2, 1, n - 1, sheet.getLastColumn()).getValues();
 }
 
-// Replace the stored rows for these dates.
-function writeWeek_(rows) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SCHEDULE_TAB);
+// Replace the rows of tab <name> whose column A holds one of these dates.
+function writeDatedRows_(name, rows) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
   var dates = {};
   rows.forEach(function (r) { dates[r[0]] = true; });
   var tz = tz_();

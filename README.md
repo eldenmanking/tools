@@ -7,7 +7,7 @@ Tools, investigations, and useful AI config. Shared Claude Code configuration: t
 │   └── CLAUDE.md          --- Claude Code instructions for working in this repo
 ├── android
 │   └── goals              --- gym-gated app blocker for an e-ink Android tablet (see its README)
-│       └── apps-script    --- Google Sheets backend: schedule lock-in, goals, streak, tokens
+│       └── apps-script    --- Google Sheets backend: schedule lock-in, goals, streak, tokens, allowlist
 ├── claude
 │   ├── CLAUDE.md          --- global instructions, inserted into ~/git/.claude/CLAUDE.md between "Added by dotfiles" markers
 │   ├── scripts            --- hook/statusline scripts, each symlinked into ~/.claude/scripts

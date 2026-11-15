@@ -4,11 +4,17 @@ const assert = require('node:assert/strict');
 const C = require('../Core.js');
 
 const GOALS = C.parseGoals([
-  ['Push', 'Push', 2],
-  ['Pull', 'Pull', 2],
-  ['Upper', 'Push', 1],
-  ['Upper', 'Pull', 1],
+  ['Push', 'Section', 'Push', 2],
+  ['Pull', 'Section', 'Pull', 2],
+  ['Upper', 'Section', 'Push', 1],
+  ['Upper', 'section', 'Pull', 1],
+  ['Skate', 'Exercise', 'Figure skating', ''],
 ]);
+
+// One date's parseExercise entry.
+function logged(sections, exercises = []) {
+  return { sections, exercises: Object.fromEntries(exercises.map((e) => [e, true])) };
+}
 
 // A week of rows, Sunday first.
 function week(start, days) {
@@ -18,7 +24,7 @@ function week(start, days) {
 // exercise map: logging Push x2 on each of <dates>.
 function pushDone(dates) {
   const ex = {};
-  for (const d of dates) ex[d] = { push: 2 };
+  for (const d of dates) ex[d] = logged({ push: 2 });
   return ex;
 }
 
@@ -39,20 +45,43 @@ test('parseExercise: sections carry down, spacers and duplicate dates ignored', 
     ['', 'Push', 'Bench', 'x', '', 'y', 'y'],
     ['', '', 'Dips', ' ', '', '', 'z'],          // whitespace is not a log
     [],
-    ['', 'Pull', 'Rows', 'x', 'stray', '', ''],  // spacer column ignored
+    ['', 'Pull', 'Rows [lb total] (count)', 'x', 'stray', '', ''],  // spacer column ignored
   ];
   assert.deepEqual(C.parseExercise(header, rows), {
-    '2026-11-13': { push: 1, pull: 1 },
-    '2026-11-12': { push: 2 },
+    '2026-11-13': logged({ push: 1, pull: 1 }, ['bench', 'rows']),
+    '2026-11-12': logged({ push: 2 }, ['bench', 'dips']),
   });
 });
 
+test('exerciseKey: drops [unit] and (note) suffixes', () => {
+  assert.equal(C.exerciseKey('Figure skating [hr.min]'), 'figure skating');
+  assert.equal(C.exerciseKey('Squats [lb per side] (count) (s:17,2)'), 'squats');
+  assert.equal(C.exerciseKey('Run (mi) [mph]'), 'run');
+  assert.equal(C.exerciseKey('  Dips  '), 'dips');
+});
+
 test('dayProgress: every rule of the workout must be met', () => {
-  assert.equal(C.dayProgress(GOALS, 'Upper', { push: 1, pull: 1 }).done, true);
-  const p = C.dayProgress(GOALS, 'upper', { push: 3 });
+  assert.equal(C.dayProgress(GOALS, 'Upper', logged({ push: 1, pull: 1 })).done, true);
+  const p = C.dayProgress(GOALS, 'upper', logged({ push: 3 }));
   assert.equal(p.done, false);
   assert.deepEqual(p.progress.map((r) => r.met), [true, false]);
-  assert.equal(C.dayProgress(GOALS, 'Cardio', {}).unknownWorkout, true);
+  assert.deepEqual(p.progress[1], { type: 'section', name: 'Pull', min: 1, logged: 0, met: false });
+  assert.equal(C.dayProgress(GOALS, 'Upper', undefined).done, false);
+  assert.equal(C.dayProgress(GOALS, 'Cardio', logged({})).unknownWorkout, true);
+});
+
+test('dayProgress: an Exercise goal needs that exercise logged', () => {
+  assert.equal(C.dayProgress(GOALS, 'Skate', logged({ free: 1 }, ['figure skating'])).done, true);
+  assert.equal(C.dayProgress(GOALS, 'Skate', logged({ free: 1 }, ['rock climbing'])).done, false);
+  // Mixed: section counts and a specific exercise in one workout.
+  const mixed = C.parseGoals([
+    ['Upper+Skate', 'Section', 'Push', 2],
+    ['Upper+Skate', 'Exercise', 'Figure skating [hr.min]', 1],
+    ['Bad', 'Category', 'Push', 2], // unknown type: ignored
+  ]);
+  assert.equal(mixed.bad, undefined);
+  assert.equal(C.dayProgress(mixed, 'upper+skate', logged({ push: 2 }, ['figure skating'])).done, true);
+  assert.equal(C.dayProgress(mixed, 'upper+skate', logged({ push: 1 }, ['figure skating'])).done, false);
 });
 
 test('workoutFor: unset weeks copy the previous week; before the first week is unscheduled', () => {
@@ -106,7 +135,7 @@ test('computeStatus: rest day is not blocked; today unmet is pending, not a miss
   const pending = C.computeStatus(s, GOALS, pushDone(['2026-11-02']), '2026-11-03');
   assert.equal(pending.blocked, true);
   assert.equal(pending.streak, 1);
-  assert.deepEqual(pending.goalsProgress, [{ section: 'Push', min: 2, logged: 0, met: false }]);
+  assert.deepEqual(pending.goalsProgress, [{ type: 'section', name: 'Push', min: 2, logged: 0, met: false }]);
   const done = C.computeStatus(s, GOALS, pushDone(['2026-11-02', '2026-11-03']), '2026-11-03');
   assert.equal(done.blocked, false);
   assert.equal(done.streak, 2);
@@ -150,10 +179,10 @@ test('computeStatus: tokens are earned while at the cap only up to the cap', () 
   for (let d = start; d < C.addDays(start, 14); d = C.addDays(d, 1)) days.push(d);
   // 14 completions = 2 tokens; one miss spends one; 7 more would earn it back.
   const ex = pushDone(days.filter((d) => d !== '2026-10-18'));
-  for (let i = 15; i < 21; i++) ex[C.addDays(start, i)] = { push: 2 };
+  for (let i = 15; i < 21; i++) ex[C.addDays(start, i)] = logged({ push: 2 });
   const st = C.computeStatus(s, GOALS, ex, C.addDays(start, 20));
   assert.equal(st.tokens, 1); // 20 completions so far: 2 earned, 1 spent
-  ex[C.addDays(start, 21)] = { push: 2 };
+  ex[C.addDays(start, 21)] = logged({ push: 2 });
   assert.equal(C.computeStatus(s, GOALS, ex, C.addDays(start, 21)).tokens, 2);
 });
 
@@ -161,4 +190,36 @@ test('computeStatus: no schedule at all means nothing is blocked', () => {
   const st = C.computeStatus({}, GOALS, {}, '2026-11-15');
   assert.equal(st.blocked, false);
   assert.equal(st.streak, 0);
+});
+
+test('allowlist: a saved change takes effect tomorrow, never today', () => {
+  const today = '2026-11-15';
+  const v = C.validateAllowlist(['com.example.reader', 'com.example.notes', 'com.example.reader'], today);
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.row, ['2026-11-16', 'com.example.notes,com.example.reader']);
+  assert.match(C.validateAllowlist(['notapackage', 'com.ok.app'], today).errors.join(), /not a package name: notapackage/);
+
+  const entries = C.parseAllowlist([
+    ['2026-11-01', 'com.example.reader'],
+    v.row,
+    ['bad date', 'com.x.y'],
+  ]);
+  const now = C.allowlistFor(entries, today);
+  assert.deepEqual(now.current, ['com.example.reader']);
+  assert.deepEqual(now.pending, { from: '2026-11-16', packages: ['com.example.notes', 'com.example.reader'] });
+  const tomorrow = C.allowlistFor(entries, '2026-11-16');
+  assert.deepEqual(tomorrow.current, ['com.example.notes', 'com.example.reader']);
+  assert.equal(tomorrow.pending, null);
+  assert.deepEqual(C.allowlistFor([], today).current, []);
+});
+
+test('computeStatus: reports today\'s allowlist with the block state', () => {
+  const s = C.parseSchedule(week(SUN, ['Rest', 'Skate', 'Push', 'Rest', 'Push', 'Push', 'Rest']));
+  const entries = C.parseAllowlist([['2026-11-01', 'com.example.reader']]);
+  const st = C.computeStatus(s, GOALS, {}, '2026-11-02', entries);
+  assert.equal(st.workout, 'Skate');
+  assert.equal(st.blocked, true);
+  assert.deepEqual(st.allowlist, ['com.example.reader']);
+  const ex = { '2026-11-02': logged({ free: 1 }, ['figure skating']) };
+  assert.equal(C.computeStatus(s, GOALS, ex, '2026-11-02', entries).blocked, false);
 });

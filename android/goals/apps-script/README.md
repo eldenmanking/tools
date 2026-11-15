@@ -9,10 +9,17 @@ Runs inside the gym log spreadsheet (bound script) and decides whether today's g
 - `Exercise` (existing, unchanged): row 2 holds dates from column D; column B labels a section
   (Push, Pull, Legs, Core, Cardio, Free, Stretch, ...) on its first row; any non-empty cell means
   that exercise was logged that date. Spacer columns with no date are skipped.
-- `Gate Goals` (created by `setup()`): `Workout | Section | Min exercises`. A workout is done when
-  every one of its rows is met, for example `Upper | Push | 2` plus `Upper | Pull | 2`.
+- `Gate Goals` (created by `setup()`): `Workout | Type | Name | Min exercises`. A workout is done
+  when every one of its rows is met. There are two row types:
+  - `Section`: log at least *Min* exercises from that section of `Exercise` that day.
+    Example: `Upper | Section | Push | 2`, `Upper | Section | Pull | 2`, `Upper | Section | Core | 1`.
+  - `Exercise`: log that one exercise. *Name* is the exercise without its `[unit]` and `(...)`
+    suffixes, and *Min* is ignored. Example: `Skate | Exercise | Figure skating`.
+  One workout can mix both types.
 - `Gate Schedule` (created by `setup()`, written by the app): `yyyy-mm-dd | Workout or Rest`.
   A week with no rows repeats the week before it.
+- `Gate Allowlist` (created by `setup()`, written by the app): `yyyy-mm-dd | com.a.b,com.c.d`.
+  While today is blocked, every app outside the list in effect is blocked.
 
 ## Rules
 - Weeks start Sunday. A saved week needs at least 4 gym days.
@@ -21,6 +28,8 @@ Runs inside the gym log spreadsheet (bound script) and decides whether today's g
 - Each completed gym day adds 1 to the streak. A missed one spends a freeze token, if there is one,
   or resets the streak. Rest days and today (while still unmet) change nothing.
 - One token per 7 completed gym days, capped at 2. Workouts on rest days don't count.
+- A saved allowlist takes effect the next day (server date), so changing it never unblocks
+  anything today.
 
 ## Deploy
 1. In the sheet: Extensions > Apps Script. Create files `Core.gs` and `Code.gs` and paste in

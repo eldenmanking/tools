@@ -44,13 +44,21 @@ function norm_(s) {
   return String(s == null ? '' : s).trim().toLowerCase();
 }
 
+// An exercise's key: its name without the unit and notes suffixes, so
+// "Figure skating [hr.min]" and "Squats [lb per side] (count) (s:17,2)" become
+// "figure skating" and "squats".
+function exerciseKey(name) {
+  return norm_(String(name == null ? '' : name).split(/\s*[\[(]/)[0]);
+}
+
 // The Exercise tab: row 2 holds dates from column D on (newest first, blank
 // spacer columns allowed); column B labels a section on its first row and the
 // label carries down; column C names the exercise; a non-empty cell means that
 // exercise was logged on that date.
 //   headerIsos: ISO date or null for every column of row 2
 //   dataRows:   rows 3.. of the tab as 2D values
-// Returns { iso: { sectionKey: count } }, counting distinct exercise rows.
+// Returns { iso: { sections: { sectionKey: count }, exercises: { exerciseKey: true } } },
+// counting distinct exercise rows per section.
 function parseExercise(headerIsos, dataRows) {
   var out = {};
   var section = '';
@@ -58,33 +66,91 @@ function parseExercise(headerIsos, dataRows) {
     var row = dataRows[r];
     var label = norm_(row[1]);
     if (label) section = label;
-    if (!section || !norm_(row[2])) continue;
+    var ex = exerciseKey(row[2]);
+    if (!section || !ex) continue;
     var seen = {};
     for (var c = 3; c < row.length; c++) {
       var iso = headerIsos[c];
       if (!iso || seen[iso] || norm_(row[c]) === '') continue;
       seen[iso] = true; // two columns with the same date count an exercise once
-      var day = out[iso] || (out[iso] = {});
-      day[section] = (day[section] || 0) + 1;
+      var day = out[iso] || (out[iso] = { sections: {}, exercises: {} });
+      day.sections[section] = (day.sections[section] || 0) + 1;
+      day.exercises[ex] = true;
     }
   }
   return out;
 }
 
-// Gate Goals tab rows (after the header): [workout, section, min exercises].
-// Returns { workoutKey: { name, rules: [{ section, sectionKey, min }] } }.
+// Gate Goals tab rows (after the header): [workout, type, name, min], where
+// type is "Section" (log at least <min> exercises from that Exercise tab
+// section) or "Exercise" (log that exercise; <min> is ignored). A workout is
+// done when all its rows are met.
+// Returns { workoutKey: { name, rules: [{ type, name, key, min }] } }.
 function parseGoals(rows) {
   var out = {};
   for (var i = 0; i < rows.length; i++) {
-    var name = String(rows[i][0] || '').trim();
-    var section = String(rows[i][1] || '').trim();
-    var min = Number(rows[i][2]);
-    if (!name || !section || !(min > 0)) continue;
-    var key = norm_(name);
-    var g = out[key] || (out[key] = { name: name, rules: [] });
-    g.rules.push({ section: section, sectionKey: norm_(section), min: min });
+    var workout = String(rows[i][0] || '').trim();
+    var type = norm_(rows[i][1]);
+    var name = String(rows[i][2] || '').trim();
+    if (!workout || !name || (type !== 'section' && type !== 'exercise')) continue;
+    var min = type === 'exercise' ? 1 : Number(rows[i][3]);
+    if (!(min > 0)) continue;
+    var wk = norm_(workout);
+    var g = out[wk] || (out[wk] = { name: workout, rules: [] });
+    g.rules.push({
+      type: type,
+      name: name,
+      key: type === 'exercise' ? exerciseKey(name) : norm_(name),
+      min: min
+    });
   }
   return out;
+}
+
+// ---- allowlist -------------------------------------------------------------
+
+// Gate Allowlist tab rows (after the header): [effectiveFromIso, packages],
+// packages comma-separated. Returns entries sorted by date.
+function parseAllowlist(rows) {
+  var byDate = {};
+  for (var i = 0; i < rows.length; i++) {
+    var iso = String(rows[i][0] || '').trim();
+    if (!isIsoDate(iso)) continue;
+    byDate[iso] = splitPackages_(rows[i][1]); // later rows win
+  }
+  return Object.keys(byDate).sort().map(function (d) { return { from: d, packages: byDate[d] }; });
+}
+
+function splitPackages_(s) {
+  var seen = {};
+  return String(s == null ? '' : s).split(/[\s,]+/).filter(function (p) {
+    if (!p || seen[p]) return false;
+    seen[p] = true;
+    return true;
+  }).sort();
+}
+
+// The allowlist in effect on <iso> ([] before the first entry) and the next
+// one already saved to take effect later, if any.
+function allowlistFor(entries, iso) {
+  var current = [], pending = null;
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].from <= iso) current = entries[i].packages;
+    else if (!pending) pending = entries[i];
+  }
+  return { current: current, pending: pending };
+}
+
+var PACKAGE_RE_ = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
+
+// Check a new allowlist. It takes effect tomorrow (server date), so a change
+// never unblocks anything today.
+// Returns { ok, errors, row: [fromIso, packages] }.
+function validateAllowlist(packages, today) {
+  var list = splitPackages_((packages || []).join(','));
+  var errors = list.filter(function (p) { return !PACKAGE_RE_.test(p); })
+    .map(function (p) { return 'not a package name: ' + p; });
+  return { ok: errors.length === 0, errors: errors, row: [addDays(today, 1), list.join(',')] };
 }
 
 // Gate Schedule tab rows (after the header): [dateIso, workout or "Rest"].
@@ -183,15 +249,17 @@ function validateSave(schedule, goals, weekStart, days, today) {
 
 // ---- goals and streak ------------------------------------------------------
 
-function dayProgress(goals, workout, counts) {
+// <day> is one date's entry from parseExercise (or undefined if nothing was logged).
+function dayProgress(goals, workout, day) {
   var g = goals[norm_(workout)];
   if (!g) return { done: false, unknownWorkout: true, progress: [] };
-  counts = counts || {};
+  var sections = (day && day.sections) || {};
+  var exercises = (day && day.exercises) || {};
   var done = true;
   var progress = g.rules.map(function (r) {
-    var logged = counts[r.sectionKey] || 0;
+    var logged = r.type === 'exercise' ? (exercises[r.key] ? 1 : 0) : (sections[r.key] || 0);
     if (logged < r.min) done = false;
-    return { section: r.section, min: r.min, logged: logged, met: logged >= r.min };
+    return { type: r.type, name: r.name, min: r.min, logged: logged, met: logged >= r.min };
   });
   return { done: done, progress: progress };
 }
@@ -201,7 +269,7 @@ function dayProgress(goals, workout, counts) {
 // freeze token (cap MAX_TOKENS). Missed gym day before today: spend a token if
 // there is one, else the streak resets. Rest days change nothing; neither does
 // today while it is still unmet. Logging on a rest day is a bonus.
-function computeStatus(schedule, goals, exercise, today) {
+function computeStatus(schedule, goals, exercise, today, allowlist) {
   var streak = 0, longest = 0, tokens = 0, completed = 0;
   var first = firstWeek_(schedule);
   var history = [];
@@ -244,6 +312,9 @@ function computeStatus(schedule, goals, exercise, today) {
     longest: longest,
     tokens: tokens,
     goalsProgress: tp.progress,
+    // While blocked, every app outside this list is blocked.
+    allowlist: allowlistFor(allowlist || [], today).current,
+    pendingAllowlist: allowlistFor(allowlist || [], today).pending,
     history: history.slice(-14)
   };
 }
@@ -251,7 +322,9 @@ function computeStatus(schedule, goals, exercise, today) {
 if (typeof module !== 'undefined') {
   module.exports = {
     addDays: addDays, dayOfWeek: dayOfWeek, weekStartOf: weekStartOf, isIsoDate: isIsoDate,
-    parseExercise: parseExercise, parseGoals: parseGoals, parseSchedule: parseSchedule,
+    exerciseKey: exerciseKey, parseExercise: parseExercise, parseGoals: parseGoals,
+    parseSchedule: parseSchedule, parseAllowlist: parseAllowlist, allowlistFor: allowlistFor,
+    validateAllowlist: validateAllowlist,
     isGymDay: isGymDay, workoutFor: workoutFor, weekView: weekView, validateSave: validateSave,
     dayProgress: dayProgress, computeStatus: computeStatus,
     MIN_GYM_DAYS_PER_WEEK: MIN_GYM_DAYS_PER_WEEK, MAX_TOKENS: MAX_TOKENS
