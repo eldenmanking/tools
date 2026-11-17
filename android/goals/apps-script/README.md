@@ -17,7 +17,10 @@ Runs inside the gym log spreadsheet (bound script) and decides whether today's g
     suffixes, and *Min* is ignored. Example: `Skate | Exercise | Figure skating`.
   One workout can mix both types.
 - `Gate Schedule` (created by `setup()`, written by the app): `yyyy-mm-dd | Workout or Rest`.
-  A week with no rows repeats the week before it.
+  A week with no rows follows the default week (below), or repeats the week before it when no
+  default is set.
+- `Gate Default` (created by `setup()`, written by the app): `yyyy-mm-dd | Sun | Mon | ... | Sat`,
+  the default week, effective from that date.
 - `Gate Allowlist` (created by `setup()`, written by the app): `yyyy-mm-dd | com.a.b,com.c.d`.
   While today is blocked, every app outside the list in effect is blocked.
 
@@ -28,6 +31,8 @@ Runs inside the gym log spreadsheet (bound script) and decides whether today's g
 - Each completed gym day adds 1 to the streak. A missed one spends a freeze token, if there is one,
   or resets the streak. Rest days and today (while still unmet) change nothing.
 - One token per 7 completed gym days, capped at 2. Workouts on rest days don't count.
+- A saved default week takes effect the next day and only fills weeks that aren't saved, so
+  changing it never changes today or an earlier day. It needs the same 4 gym days.
 - A saved allowlist takes effect the next day (server date), so changing it never unblocks
   anything today.
 

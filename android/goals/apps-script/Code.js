@@ -7,6 +7,8 @@
 //                             "days":["Rest","Upper","Lower",...]}  (Sunday first)
 //   POST <url>?token=T  body {"action":"saveAllowlist","packages":["com.a.b",...]}
 //                             (takes effect tomorrow)
+//   POST <url>?token=T  body {"action":"saveDefault","days":["Rest","Upper",...]}
+//                             (Sunday first; applies from tomorrow to unsaved weeks)
 //
 // "Today" is always the server's date in the spreadsheet's time zone. Only when
 // the script property ALLOW_FAKE_TODAY is "true" does ?today=yyyy-mm-dd
@@ -16,6 +18,7 @@ var EXERCISE_TAB = 'Exercise';
 var GOALS_TAB = 'Gate Goals';
 var SCHEDULE_TAB = 'Gate Schedule';
 var ALLOWLIST_TAB = 'Gate Allowlist';
+var DEFAULT_TAB = 'Gate Default';
 
 // Run once from the editor: creates the gate tabs if missing and a secret
 // token, then logs the token (View > Logs).
@@ -40,6 +43,12 @@ function setup() {
     s.getRange('A:A').setNumberFormat('@'); // keep dates as text, no time zone shifts
     s.setFrozenRows(1);
   }
+  if (!ss.getSheetByName(DEFAULT_TAB)) {
+    var d = ss.insertSheet(DEFAULT_TAB);
+    d.getRange(1, 1, 1, 8).setValues([['Effective from (yyyy-mm-dd)', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']]);
+    d.getRange('A:A').setNumberFormat('@');
+    d.setFrozenRows(1);
+  }
   if (!ss.getSheetByName(ALLOWLIST_TAB)) {
     var a = ss.insertSheet(ALLOWLIST_TAB);
     a.getRange(1, 1, 1, 2).setValues([['Effective from (yyyy-mm-dd)', 'Allowed packages (comma-separated)']]);
@@ -55,7 +64,7 @@ function doGet(e) {
   return handle_(e, function (data, today) {
     var action = (e.parameter.action || 'status');
     if (action === 'status') {
-      return computeStatus(data.schedule, data.goals, data.exercise, today, data.allowlist);
+      return computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist);
     }
     if (action === 'schedule') {
       var ws = weekStartOf(today);
@@ -63,7 +72,8 @@ function doGet(e) {
         today: today,
         workouts: Object.keys(data.goals).map(function (k) { return data.goals[k].name; }),
         minGymDays: MIN_GYM_DAYS_PER_WEEK,
-        weeks: [weekView(data.schedule, ws, today), weekView(data.schedule, addDays(ws, 7), today)]
+        weeks: [weekView(data.plan, ws, today), weekView(data.plan, addDays(ws, 7), today)],
+        default: defaultFor(data.plan.defaults, today)
       };
     }
     return { error: 'unknown action ' + action };
@@ -77,10 +87,16 @@ function doPost(e) {
     return handle_(e, function (data, today) {
       var body = JSON.parse((e.postData && e.postData.contents) || '{}');
       if (body.action === 'saveSchedule') {
-        var v = validateSave(data.schedule, data.goals, body.weekStart, body.days, today);
+        var v = validateSave(data.plan, data.goals, body.weekStart, body.days, today);
         if (!v.ok) return { ok: false, errors: v.errors };
         writeDatedRows_(SCHEDULE_TAB, v.rows);
-        return { ok: true, week: weekView(readData_().schedule, body.weekStart, today) };
+        return { ok: true, week: weekView(readData_().plan, body.weekStart, today) };
+      }
+      if (body.action === 'saveDefault') {
+        var dv = validateDefault(data.goals, body.days, today);
+        if (!dv.ok) return { ok: false, errors: dv.errors };
+        writeDatedRows_(DEFAULT_TAB, [dv.row]);
+        return { ok: true, effectiveFrom: dv.row[0], default: defaultFor(readData_().plan.defaults, today) };
       }
       if (body.action === 'saveAllowlist') {
         var a = validateAllowlist(body.packages, today);
@@ -138,13 +154,17 @@ function readData_() {
   return {
     exercise: parseExercise(header, ex.slice(2)),
     goals: parseGoals(rowsAfterHeader_(ss.getSheetByName(GOALS_TAB))),
-    schedule: parseSchedule(datedRows_(ss.getSheetByName(SCHEDULE_TAB), tz)),
+    plan: {
+      days: parseSchedule(datedRows_(ss.getSheetByName(SCHEDULE_TAB), tz)),
+      defaults: parseDefaults(datedRows_(ss.getSheetByName(DEFAULT_TAB), tz))
+    },
     allowlist: parseAllowlist(datedRows_(ss.getSheetByName(ALLOWLIST_TAB), tz))
   };
 }
 
+// Rows after the header with column A as an ISO date ('' if it isn't one).
 function datedRows_(sheet, tz) {
-  return rowsAfterHeader_(sheet).map(function (r) { return [cellIso_(r[0], tz) || '', r[1]]; });
+  return rowsAfterHeader_(sheet).map(function (r) { return [cellIso_(r[0], tz) || ''].concat(r.slice(1)); });
 }
 
 function rowsAfterHeader_(sheet) {
@@ -159,10 +179,12 @@ function writeDatedRows_(name, rows) {
   var dates = {};
   rows.forEach(function (r) { dates[r[0]] = true; });
   var tz = tz_();
-  for (var i = sheet.getLastRow(); i >= 2; i--) {
-    if (dates[cellIso_(sheet.getRange(i, 1).getValue(), tz)]) sheet.deleteRow(i);
+  var last = sheet.getLastRow();
+  var col = last < 2 ? [] : sheet.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = col.length - 1; i >= 0; i--) {
+    if (dates[cellIso_(col[i][0], tz)]) sheet.deleteRow(i + 2);
   }
   var start = sheet.getLastRow() + 1;
   sheet.getRange(start, 1, rows.length, 1).setNumberFormat('@');
-  sheet.getRange(start, 1, rows.length, 2).setValues(rows);
+  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
 }

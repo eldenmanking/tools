@@ -223,3 +223,61 @@ test('computeStatus: reports today\'s allowlist with the block state', () => {
   const ex = { '2026-11-02': logged({ free: 1 }, ['figure skating']) };
   assert.equal(C.computeStatus(s, GOALS, ex, '2026-11-02', entries).blocked, false);
 });
+
+const DEFAULT_ROW = ['2026-11-01', 'Rest', 'Upper', 'Push', 'Rest', 'Upper', 'Pull', 'Rest'];
+
+test('defaults: an unsaved week follows the default; a saved week overrides it', () => {
+  const plan = { days: C.parseSchedule(week('2026-11-08', ['Rest', 'Pull', 'Pull', 'Pull', 'Pull', 'Rest', 'Rest'])),
+    defaults: C.parseDefaults([DEFAULT_ROW]) };
+  assert.equal(C.workoutFor(plan, '2026-11-02'), 'Upper');   // default week
+  assert.equal(C.workoutFor(plan, '2026-11-09'), 'Pull');    // saved week
+  assert.equal(C.workoutFor(plan, '2026-11-14'), 'Rest');    // saved week, Saturday
+  assert.equal(C.workoutFor(plan, '2026-11-16'), 'Upper');   // back to the default
+  assert.equal(C.workoutFor(plan, '2026-10-31'), null);      // before anything
+  const v = C.weekView(plan, '2026-11-15', '2026-11-15');
+  assert.deepEqual(v.days.map((d) => d.source), Array(7).fill('default'));
+  assert.equal(v.days[0].locked, true);
+  assert.equal(v.days[1].locked, false);
+});
+
+test('defaults: a new default starts tomorrow and never changes today or earlier', () => {
+  // Last week was saved; this week is unsaved, so it repeats last week.
+  const days = C.parseSchedule(week('2026-11-08', ['Rest', 'Pull', 'Pull', 'Pull', 'Pull', 'Rest', 'Rest']));
+  const today = '2026-11-17'; // Tuesday
+  assert.equal(C.workoutFor(days, today), 'Pull');
+  const v = C.validateDefault(GOALS, ['Rest', 'Rest', 'Rest', 'Upper', 'Upper', 'Upper', 'Upper'], today);
+  assert.equal(v.ok, true, v.errors.join());
+  assert.equal(v.row[0], '2026-11-18');
+  const plan = { days, defaults: C.parseDefaults([v.row]) };
+  assert.equal(C.workoutFor(plan, '2026-11-16'), 'Pull');  // locked days keep the copy
+  assert.equal(C.workoutFor(plan, today), 'Pull');
+  assert.equal(C.workoutFor(plan, '2026-11-18'), 'Upper'); // tomorrow on: the default
+  assert.equal(C.weekView(plan, '2026-11-15', today).days[2].source, 'copied');
+  assert.equal(C.weekView(plan, '2026-11-15', today).days[3].source, 'default');
+  // A later default replaces an earlier one from its own date on.
+  const two = C.parseDefaults([DEFAULT_ROW, v.row]);
+  assert.equal(C.defaultFor(two, '2026-11-17').current.from, '2026-11-01');
+  assert.equal(C.defaultFor(two, '2026-11-17').pending.from, '2026-11-18');
+});
+
+test('defaults: same checks as a week (4 gym days, known workouts)', () => {
+  const few = C.validateDefault(GOALS, ['Rest', 'Upper', 'Rest', 'Upper', 'Rest', 'Upper', 'Rest'], '2026-11-17');
+  assert.match(few.errors.join(), /at least 4 gym days, got 3/);
+  const bad = C.validateDefault(GOALS, ['Yoga', 'Upper', 'Push', 'Upper', 'Rest', 'Upper', 'Rest'], '2026-11-17');
+  assert.match(bad.errors.join(), /Sun: unknown workout "Yoga"/);
+  assert.equal(C.validateDefault(GOALS, ['Upper'], '2026-11-17').ok, false);
+});
+
+test('defaults: saving a week still locks days that came from the default', () => {
+  const plan = { days: {}, defaults: C.parseDefaults([DEFAULT_ROW]) };
+  const r = C.validateSave(plan, GOALS, '2026-11-15', ['Rest', 'Rest', 'Upper', 'Upper', 'Upper', 'Upper', 'Rest'], '2026-11-16');
+  assert.match(r.errors.join(), /2026-11-16 is locked \(was "Upper"\)/);
+});
+
+test('computeStatus: streak counts default-planned days', () => {
+  const plan = { days: {}, defaults: C.parseDefaults([['2026-11-01', 'Push', 'Push', 'Push', 'Push', 'Rest', 'Rest', 'Rest']]) };
+  const st = C.computeStatus(plan, GOALS, pushDone(['2026-11-01', '2026-11-02', '2026-11-03']), '2026-11-04');
+  assert.equal(st.streak, 3);
+  assert.equal(st.blocked, true);
+  assert.equal(st.workout, 'Push');
+});

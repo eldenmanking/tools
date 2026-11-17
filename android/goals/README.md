@@ -9,8 +9,8 @@ keeps its own.
 goals
 ├── README.md          --- this file
 └── apps-script        --- backend bound to the gym log sheet (source of truth); see its README
-    ├── Code.js        --- web app endpoints (status, schedule, saveSchedule, saveAllowlist), sheet I/O
-    ├── Core.js        --- pure rules: schedule lock-in, goals, streak, tokens, allowlist
+    ├── Code.js        --- web app endpoints (status, schedule, save*), sheet I/O
+    ├── Core.js        --- pure rules: schedule and default week, goals, streak, tokens, allowlist
     ├── README.md      --- sheet layout, rules, deploy steps
     └── tests          --- Node tests with fake dates
 ```
@@ -23,7 +23,7 @@ goals
    - It returns `{todayScheduled, workout, done, blocked, streak, longest, tokens, goalsProgress,
      allowlist}`.
    - It saves weekly schedules, rejecting changes to locked days and weeks with fewer than 4 gym
-     days.
+     days, and a default week that fills unsaved weeks from the next day on.
    - It saves allowlists, which take effect the next day.
    - Access needs a secret token in the URL, so the app needs no Google sign-in.
 2. **Android app** (planned: Kotlin and Jetpack Compose).

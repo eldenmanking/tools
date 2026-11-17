@@ -171,43 +171,129 @@ function isGymDay(workout) {
   return !!workout && norm_(workout) !== 'rest';
 }
 
-function storedWeeks_(schedule) {
+// A plan is { days: parseSchedule(...), defaults: parseDefaults(...) }. The
+// functions below also take a bare parseSchedule map (no defaults).
+function plan_(p) {
+  if (p && p.days && p.defaults) return p;
+  return { days: (p && p.days) || p || {}, defaults: (p && p.defaults) || [] };
+}
+
+function storedWeeks_(days) {
   var weeks = {};
-  for (var iso in schedule) weeks[weekStartOf(iso)] = true;
+  for (var iso in days) weeks[weekStartOf(iso)] = true;
   return weeks;
 }
 
-function firstWeek_(schedule) {
+// The earliest date the plan says anything about, or null.
+function planStart_(plan) {
   var first = null;
-  for (var iso in schedule) {
+  for (var iso in plan.days) {
     var w = weekStartOf(iso);
     if (first === null || w < first) first = w;
+  }
+  if (plan.defaults.length && (first === null || plan.defaults[0].from < first)) {
+    first = plan.defaults[0].from;
   }
   return first;
 }
 
-// The workout planned for <iso>: a stored day wins; a stored week's missing
-// days are rest; a week with nothing stored repeats the week before it. Before
-// the first stored week there is no schedule (null).
-function workoutFor(schedule, iso) {
-  var first = firstWeek_(schedule);
-  if (first === null) return null;
-  var weeks = storedWeeks_(schedule);
-  var d = iso;
-  while (weekStartOf(d) >= first) {
-    if (weeks[weekStartOf(d)]) return schedule[d] || REST;
-    d = addDays(d, -7);
+// Gate Default tab rows (after the header): [effectiveFromIso, Sun, Mon, ...,
+// Sat]. Returns entries sorted by date; a later row for the same date wins.
+function parseDefaults(rows) {
+  var byDate = {};
+  for (var i = 0; i < rows.length; i++) {
+    var iso = String(rows[i][0] || '').trim();
+    if (!isIsoDate(iso)) continue;
+    var days = [];
+    for (var j = 1; j <= 7; j++) {
+      var w = String(rows[i][j] == null ? '' : rows[i][j]).trim();
+      days.push(isGymDay(w) ? w : REST);
+    }
+    byDate[iso] = days;
   }
-  return null;
+  return Object.keys(byDate).sort().map(function (d) { return { from: d, days: byDate[d] }; });
 }
 
-function weekView(schedule, weekStart, today) {
+// The default week in effect on <iso> (7 names, Sunday first) and the next
+// one saved to take effect later, if any.
+function defaultFor(defaults, iso) {
+  var current = null, pending = null;
+  for (var i = 0; i < defaults.length; i++) {
+    if (defaults[i].from <= iso) current = defaults[i];
+    else if (!pending) pending = defaults[i];
+  }
+  return { current: current, pending: pending };
+}
+
+// The workout planned for <iso> and where it came from:
+//   saved   - the week was saved (its missing days are rest)
+//   default - the week wasn't saved; the default in effect that day applies
+//   copied  - neither; the same weekday of the week before is repeated
+// Before the plan's first saved week or default there is no schedule (null).
+function planFor_(p, iso) {
+  var plan = plan_(p);
+  var first = planStart_(plan);
+  if (first === null) return { workout: null, source: null };
+  var weeks = storedWeeks_(plan.days);
+  var d = iso;
+  var copied = false;
+  while (d >= first) {
+    if (weeks[weekStartOf(d)]) return { workout: plan.days[d] || REST, source: copied ? 'copied' : 'saved' };
+    var def = defaultFor(plan.defaults, d).current;
+    if (def) return { workout: def.days[dayOfWeek(d)], source: copied ? 'copied' : 'default' };
+    d = addDays(d, -7);
+    copied = true;
+  }
+  return { workout: null, source: null };
+}
+
+function workoutFor(plan, iso) {
+  return planFor_(plan, iso).workout;
+}
+
+function weekView(plan, weekStart, today) {
   var days = [];
   for (var i = 0; i < 7; i++) {
     var iso = addDays(weekStart, i);
-    days.push({ date: iso, workout: workoutFor(schedule, iso) || REST, locked: iso <= today });
+    var p = planFor_(plan, iso);
+    days.push({ date: iso, workout: p.workout || REST, source: p.source, locked: iso <= today });
   }
-  return { weekStart: weekStart, stored: !!storedWeeks_(schedule)[weekStart], days: days };
+  return { weekStart: weekStart, stored: !!storedWeeks_(plan_(plan).days)[weekStart], days: days };
+}
+
+// Shared checks for a week of workouts: at least MIN_GYM_DAYS_PER_WEEK gym
+// days, every gym day a workout in Gate Goals. Returns { errors, names }, the
+// names normalized ("" or rest -> "Rest").
+function checkWeek_(goals, days, label) {
+  var errors = [], names = [], gym = 0;
+  for (var i = 0; i < 7; i++) {
+    var w = String(days[i] || '').trim() || REST;
+    if (isGymDay(w)) {
+      gym++;
+      if (!goals[norm_(w)]) errors.push(label(i) + ': unknown workout "' + w + '"');
+    } else {
+      w = REST;
+    }
+    names.push(w);
+  }
+  if (gym < MIN_GYM_DAYS_PER_WEEK) {
+    errors.push('a week needs at least ' + MIN_GYM_DAYS_PER_WEEK + ' gym days, got ' + gym);
+  }
+  return { errors: errors, names: names };
+}
+
+var WEEKDAYS_ = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Check a new default week. It applies from tomorrow (server date) to every
+// week that isn't saved, so it can't change today or any earlier day.
+//   days: 7 workout names, Sunday first
+// Returns { ok, errors, row: [fromIso, Sun..Sat] }.
+function validateDefault(goals, days, today) {
+  if (!days || days.length !== 7) {
+    return { ok: false, errors: ['days must list 7 entries, Sunday first'], row: [] };
+  }
+  var c = checkWeek_(goals, days, function (i) { return WEEKDAYS_[i]; });
+  return { ok: c.errors.length === 0, errors: c.errors, row: [addDays(today, 1)].concat(c.names) };
 }
 
 // Check a save of one whole week. A day can change only until midnight the
@@ -216,33 +302,22 @@ function weekView(schedule, weekStart, today) {
 // Gate Goals tab.
 //   days: 7 workout names, Sunday first ("Rest" or "" for rest)
 // Returns { ok, errors: [string], rows: [[iso, workout]...] } (rows to store).
-function validateSave(schedule, goals, weekStart, days, today) {
-  var errors = [];
+function validateSave(plan, goals, weekStart, days, today) {
   if (!isIsoDate(weekStart) || dayOfWeek(weekStart) !== 0) {
     return { ok: false, errors: ['weekStart must be a Sunday (yyyy-mm-dd)'], rows: [] };
   }
   if (!days || days.length !== 7) {
     return { ok: false, errors: ['days must list 7 entries, Sunday first'], rows: [] };
   }
-  var rows = [];
-  var gym = 0;
+  var c = checkWeek_(goals, days, function (i) { return addDays(weekStart, i); });
+  var errors = c.errors, rows = [];
   for (var i = 0; i < 7; i++) {
     var iso = addDays(weekStart, i);
-    var w = String(days[i] || '').trim() || REST;
-    if (isGymDay(w)) {
-      gym++;
-      if (!goals[norm_(w)]) errors.push(iso + ': unknown workout "' + w + '"');
-    } else {
-      w = REST;
-    }
-    var current = workoutFor(schedule, iso) || REST;
-    if (iso <= today && norm_(w) !== norm_(current)) {
+    var current = workoutFor(plan, iso) || REST;
+    if (iso <= today && norm_(c.names[i]) !== norm_(current)) {
       errors.push(iso + ' is locked (was "' + current + '")');
     }
-    rows.push([iso, w]);
-  }
-  if (gym < MIN_GYM_DAYS_PER_WEEK) {
-    errors.push('a week needs at least ' + MIN_GYM_DAYS_PER_WEEK + ' gym days, got ' + gym);
+    rows.push([iso, c.names[i]]);
   }
   return { ok: errors.length === 0, errors: errors, rows: rows };
 }
@@ -271,7 +346,7 @@ function dayProgress(goals, workout, day) {
 // today while it is still unmet. Logging on a rest day is a bonus.
 function computeStatus(schedule, goals, exercise, today, allowlist) {
   var streak = 0, longest = 0, tokens = 0, completed = 0;
-  var first = firstWeek_(schedule);
+  var first = planStart_(plan_(schedule));
   var history = [];
   if (first !== null) {
     for (var d = first; d <= today; d = addDays(d, 1)) {
@@ -324,6 +399,7 @@ if (typeof module !== 'undefined') {
     addDays: addDays, dayOfWeek: dayOfWeek, weekStartOf: weekStartOf, isIsoDate: isIsoDate,
     exerciseKey: exerciseKey, parseExercise: parseExercise, parseGoals: parseGoals,
     parseSchedule: parseSchedule, parseAllowlist: parseAllowlist, allowlistFor: allowlistFor,
+    parseDefaults: parseDefaults, defaultFor: defaultFor, validateDefault: validateDefault,
     validateAllowlist: validateAllowlist,
     isGymDay: isGymDay, workoutFor: workoutFor, weekView: weekView, validateSave: validateSave,
     dayProgress: dayProgress, computeStatus: computeStatus,
