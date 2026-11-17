@@ -387,6 +387,7 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
     longest: longest,
     tokens: tokens,
     goalsProgress: tp.progress,
+    week: weekView(schedule, weekStartOf(today), today).days,
     // While blocked, every app outside this list is blocked.
     allowlist: allowlistFor(allowlist || [], today).current,
     pendingAllowlist: allowlistFor(allowlist || [], today).pending,

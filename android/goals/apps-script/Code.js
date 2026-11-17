@@ -125,6 +125,7 @@ function handle_(e, fn) {
       }
       out = fn(readData_(), today);
       out.serverTime = new Date().toISOString();
+      out.timeZone = tz_();
     } catch (err) {
       out = { error: String(err) };
     }

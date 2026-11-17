@@ -281,3 +281,10 @@ test('computeStatus: streak counts default-planned days', () => {
   assert.equal(st.blocked, true);
   assert.equal(st.workout, 'Push');
 });
+
+test('computeStatus: includes this week for the home screen', () => {
+  const s = C.parseSchedule(week(SUN, ['Rest', 'Push', 'Push', 'Rest', 'Push', 'Push', 'Rest']));
+  const st = C.computeStatus(s, GOALS, {}, '2026-11-03');
+  assert.deepEqual(st.week.map((d) => d.workout), ['Rest', 'Push', 'Push', 'Rest', 'Push', 'Push', 'Rest']);
+  assert.deepEqual(st.week.map((d) => d.locked), [true, true, true, false, false, false, false]);
+});
