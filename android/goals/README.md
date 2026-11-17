@@ -20,7 +20,7 @@ goals
 │       ├── MainActivity.kt    --- the app's own screen
 │       ├── data               --- status cache (SharedPreferences) and status sources
 │       └── ui                 --- e-ink kit (Ink.kt) and the screens from the mocks
-├── core                   --- plain Kotlin, no Android SDK: status JSON, gate decision, week strip
+├── core                   --- plain Kotlin, no Android SDK: status JSON, gate decision, week strip, foreground app, refresh timing
 ├── build.gradle.kts, settings.gradle.kts, gradle.properties, gradlew, gradle/
 └── .gitignore
 ```
