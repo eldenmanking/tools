@@ -1,6 +1,8 @@
 package goals.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,7 +36,8 @@ fun GateScreen(
     onDebugUnlock: (() -> Unit)?,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding().padding(Ink.Gutter),
+        modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding()
+            .verticalScroll(rememberScrollState()).padding(Ink.Gutter),
         verticalArrangement = Arrangement.spacedBy(32.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -49,27 +52,7 @@ fun GateScreen(
             )
         }
 
-        if (unknownReason == null && status != null && status.goalsProgress.isNotEmpty()) {
-            InkList(
-                status.goalsProgress.map { g ->
-                    @Composable {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            InkCheck(g.met)
-                            InkText(g.name, size = 28.sp, bold = true, modifier = Modifier.weight(1f))
-                            InkText(progressText(g), size = 28.sp)
-                        }
-                    }
-                },
-            )
-        }
-        if (unknownReason == null && status?.unknownWorkout == true) {
-            InkText("\"${status.workout}\" isn't one of your workouts any more. Fix the goals, then check again.")
-        }
-
+        if (unknownReason == null && status != null) GoalsList(status)
         if (status != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 StatBox("${status.streak}", "day streak", Modifier.weight(1f))
@@ -79,19 +62,50 @@ fun GateScreen(
 
         Spacer(Modifier.weight(1f))
 
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (onDebugUnlock != null) {
-                InkButton("I finished (debug)", onDebugUnlock, Modifier.fillMaxWidth(), filled = false)
-            }
-            InkButton(if (checking) "Checking…" else "Check again", onCheckAgain, Modifier.fillMaxWidth())
-            val last = checkedAt(status?.serverTime, status?.timeZone)
-            InkText(
-                error?.let { "Couldn't check: $it" }
-                    ?: ((if (last != null) "Last checked $last. " else "") + "Log it in your sheet, then check again."),
-                size = 20.sp,
-                align = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        CheckButtons(status, checking, error, onCheckAgain, onDebugUnlock)
+    }
+}
+
+/** Today's goals and progress, or a note when today's workout has no goals. */
+@Composable
+fun GoalsList(status: Status) {
+    if (status.goalsProgress.isNotEmpty()) {
+        InkList(
+            status.goalsProgress.map { g ->
+                @Composable {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        InkCheck(g.met)
+                        InkText(g.name, size = 28.sp, bold = true, modifier = Modifier.weight(1f))
+                        InkText(progressText(g), size = 28.sp)
+                    }
+                }
+            },
+        )
+    }
+    if (status.unknownWorkout) {
+        InkText("\"${status.workout}\" isn't one of your workouts any more. Fix the goals, then check again.")
+    }
+}
+
+/** "Check again" with when the status was last checked, and the debug unlock if given. */
+@Composable
+fun CheckButtons(status: Status?, checking: Boolean, error: String?, onCheckAgain: () -> Unit, onDebugUnlock: (() -> Unit)?) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (onDebugUnlock != null) {
+            InkButton("I finished (debug)", onDebugUnlock, Modifier.fillMaxWidth(), filled = false)
         }
+        InkButton(if (checking) "Checking…" else "Check again", onCheckAgain, Modifier.fillMaxWidth())
+        val last = checkedAt(status?.serverTime, status?.timeZone)
+        InkText(
+            error?.let { "Couldn't check: $it" }
+                ?: ((if (last != null) "Last checked $last. " else "") + "Log it in your sheet, then check again."),
+            size = 20.sp,
+            align = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,16 +25,27 @@ import goals.core.Status
 import goals.core.WeekCell
 import goals.core.weekCells
 
-/** The home screen while nothing is gated (mock: "Home (done for today)"). */
+/**
+ * The app's own screen (mock: "Home (done for today)"). The app never gates itself, so while
+ * today is blocked this shows today's goals and "Check again" too, through [check].
+ */
 @Composable
-fun HomeScreen(status: Status, notice: String?, onSchedule: () -> Unit, onAllowlist: () -> Unit) {
+fun HomeScreen(
+    status: Status,
+    notice: String?,
+    onSchedule: () -> Unit,
+    onAllowlist: () -> Unit,
+    check: HomeCheck? = null,
+) {
     val (title, body) = when {
+        status.blocked -> "Gym first." to "Other apps are locked until today's ${status.workout} workout is in your log."
         !status.todayScheduled && status.week.isEmpty() -> "Nothing planned." to "Set a schedule to start your streak."
         !status.todayScheduled -> "Rest day." to "Nothing is locked today."
         else -> "Done for today." to "${status.workout} is logged. Every app is open until tomorrow."
     }
     Column(
-        modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding().padding(Ink.Gutter),
+        modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding()
+            .verticalScroll(rememberScrollState()).padding(Ink.Gutter),
         verticalArrangement = Arrangement.spacedBy(32.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -41,7 +54,10 @@ fun HomeScreen(status: Status, notice: String?, onSchedule: () -> Unit, onAllowl
             InkText(body)
         }
 
-        val cells = weekCells(status)
+        if (status.blocked) GoalsList(status)
+
+        // Left out while blocked, to leave room for the goals.
+        val cells = if (status.blocked) emptyList() else weekCells(status)
         if (cells.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 InkLabel("This week")
@@ -60,13 +76,24 @@ fun HomeScreen(status: Status, notice: String?, onSchedule: () -> Unit, onAllowl
 
         Spacer(Modifier.weight(1f))
 
+        if (status.blocked && check != null) {
+            CheckButtons(status, check.checking, check.error, check.onCheckAgain, check.onDebugUnlock)
+        }
         if (notice != null) InkText(notice, size = 20.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             InkButton("Schedule", onSchedule, Modifier.weight(1f), filled = false)
-            InkButton("Allowed apps", onAllowlist, Modifier.weight(1f), filled = false)
+            InkButton("Allowlist", onAllowlist, Modifier.weight(1f), filled = false)
         }
     }
 }
+
+/** "Check again" state for [HomeScreen] while today is blocked. */
+class HomeCheck(
+    val checking: Boolean,
+    val error: String?,
+    val onCheckAgain: () -> Unit,
+    val onDebugUnlock: (() -> Unit)?,
+)
 
 @Composable
 private fun WeekDayCell(cell: WeekCell, modifier: Modifier) {

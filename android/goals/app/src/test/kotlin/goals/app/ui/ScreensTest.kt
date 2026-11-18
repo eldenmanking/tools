@@ -20,11 +20,12 @@ class ScreensTest {
     @get:Rule
     val paparazzi = Paparazzi(
         deviceConfig = DeviceConfig(
-            screenWidth = 1404,
-            screenHeight = 1872,
-            xdpi = 226,
-            ydpi = 226,
-            density = Density.HIGH,
+            // The tablet: 824x1648 px at 320 dpi (412x824 dp).
+            screenWidth = 824,
+            screenHeight = 1648,
+            xdpi = 320,
+            ydpi = 320,
+            density = Density.XHIGH,
             orientation = ScreenOrientation.PORTRAIT,
         ),
         showSystemUi = false,
@@ -79,6 +80,11 @@ class ScreensTest {
             history = listOf(DayEvent("2026-11-16", "Lower", "done"), DayEvent("2026-11-17", "Upper", "done")),
         )
         HomeScreen(done, notice = null, onSchedule = {}, onAllowlist = {})
+    }
+
+    @Test
+    fun homeLocked() = paparazzi.snapshot {
+        HomeScreen(locked, notice = null, onSchedule = {}, onAllowlist = {}, check = HomeCheck(false, null, {}, null))
     }
 
     @Test

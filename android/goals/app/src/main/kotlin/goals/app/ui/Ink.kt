@@ -40,7 +40,7 @@ object Ink {
     val White = Color.White
     val Rule = 3.dp
     val ThinRule = 2.dp
-    val Gutter = 48.dp
+    val Gutter = 24.dp
 }
 
 @Composable
@@ -127,7 +127,7 @@ fun CheckMark(size: Dp, color: Color) {
 @Composable
 fun StatBox(value: String, label: String, modifier: Modifier = Modifier, suffix: String? = null) {
     Column(
-        modifier = modifier.border(Ink.Rule, Ink.Black).padding(horizontal = 20.dp, vertical = 18.dp),
+        modifier = modifier.border(Ink.Rule, Ink.Black).padding(horizontal = 14.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.Bottom) {

@@ -13,7 +13,8 @@ import goals.app.watch.WatchService
 
 /**
  * The app's own screen: the setup checklist until the required permissions are granted
- * (the optional ones until skipped), then the home screen or the gate. Starts the watcher.
+ * (the optional ones until skipped), then the home screen, which never gates the app itself.
+ * Starts the watcher.
  */
 class MainActivity : ComponentActivity() {
     private var missing by mutableStateOf(emptyList<Need>())

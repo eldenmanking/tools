@@ -11,6 +11,7 @@ import goals.app.data.SampleStatusSource
 import goals.app.data.StatusSource
 import goals.app.data.StatusStore
 import goals.app.ui.GateScreen
+import goals.app.ui.HomeCheck
 import goals.app.ui.HomeScreen
 import goals.core.GateState
 import goals.core.StatusResult
@@ -23,7 +24,9 @@ import java.time.ZoneId
 /**
  * Shows the gate or the home screen for the cached status, and checks for a fresh one
  * on start and on "Check again". The screen only changes when the status does, so e-ink
- * redraws stay rare. [onOpen] runs when the gate state becomes Open (GateActivity finishes).
+ * redraws stay rare. [onOpen] is set in GateActivity and runs when the gate state becomes
+ * Open (it finishes). Without it this is the app's own screen, which never gates itself: it
+ * shows home whenever the status is for today, blocked or not.
  */
 @Composable
 fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = null) {
@@ -57,12 +60,19 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     if (state == GateState.Open && onOpen != null) LaunchedEffect(Unit) { onOpen() }
 
     val status = cached
-    if (state == GateState.Open && status != null) {
+    val debugUnlock: (() -> Unit)? = if (BuildConfig.DEBUG && source === SampleStatusSource) {
+        { SampleStatusSource.markDone(); check() }
+    } else {
+        null
+    }
+    val home = status != null && (state == GateState.Open || (onOpen == null && state is GateState.Locked))
+    if (home && status != null) {
         HomeScreen(
             status = status,
             notice = notice,
             onSchedule = { notice = "The schedule editor comes in a later step." },
             onAllowlist = { notice = "The allowlist picker comes in a later step." },
+            check = HomeCheck(checking, error, check, debugUnlock),
         )
     } else {
         GateScreen(
@@ -72,11 +82,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
             checking = checking,
             error = error,
             onCheckAgain = check,
-            onDebugUnlock = if (BuildConfig.DEBUG && source === SampleStatusSource) {
-                { SampleStatusSource.markDone(); check() }
-            } else {
-                null
-            },
+            onDebugUnlock = debugUnlock,
         )
     }
 }
