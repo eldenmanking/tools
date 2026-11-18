@@ -189,6 +189,7 @@ class WatchService : Service() {
         private const val REGATE_MS = 5_000L
         private val SYSTEM_ALLOWED = setOf(
             "com.android.settings",
+            "com.viwoods.settings", // the Viwoods tablet's own settings app (firmware 1.5.6)
             "com.android.systemui",
             "com.android.packageinstaller",
             "com.google.android.packageinstaller",

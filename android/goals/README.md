@@ -94,6 +94,15 @@ Checked on the Android 13 emulator with the watcher running and no battery exemp
   known way around the gate, along with revoking usage access.
 - Vendor task killers aren't covered by the emulator; check on the tablet.
 
+What the tablet's own framework does (from a decompiled `services.jar` of firmware 1.5.6):
+- No Viwoods code that kills or freezes background apps was found; its additions (an e-ink
+  settings service, sleep and shutdown screens) don't touch other apps' processes.
+- Stock firmware blocks notifications from apps outside a built-in list ("eink project, Blocked
+  notification from package"). The gate still works there, but its status notification won't
+  show unless that check is patched out.
+- Viwoods has its own settings app, `com.viwoods.settings`, which is never gated, like
+  `com.android.settings`.
+
 ## Build order
 1. Apps Script and tests (done).
 2. Android skeleton and the gate screen, with a manual unlock for testing (done; uses
