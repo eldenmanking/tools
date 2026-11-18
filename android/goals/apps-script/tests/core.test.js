@@ -75,13 +75,13 @@ test('dayProgress: an Exercise goal needs that exercise logged', () => {
   assert.equal(C.dayProgress(GOALS, 'Skate', logged({ free: 1 }, ['rock climbing'])).done, false);
   // Mixed: section counts and a specific exercise in one workout.
   const mixed = C.parseGoals([
-    ['Upper+Skate', 'Section', 'Push', 2],
-    ['Upper+Skate', 'Exercise', 'Figure skating [hr.min]', 1],
+    ['UpperSkate', 'Section', 'Push', 2],
+    ['UpperSkate', 'Exercise', 'Figure skating [hr.min]', 1],
     ['Bad', 'Category', 'Push', 2], // unknown type: ignored
   ]);
   assert.equal(mixed.bad, undefined);
-  assert.equal(C.dayProgress(mixed, 'upper+skate', logged({ push: 2 }, ['figure skating'])).done, true);
-  assert.equal(C.dayProgress(mixed, 'upper+skate', logged({ push: 1 }, ['figure skating'])).done, false);
+  assert.equal(C.dayProgress(mixed, 'upperskate', logged({ push: 2 }, ['figure skating'])).done, true);
+  assert.equal(C.dayProgress(mixed, 'upperskate', logged({ push: 1 }, ['figure skating'])).done, false);
 });
 
 test('workoutFor: unset weeks copy the previous week; before the first week is unscheduled', () => {
@@ -336,4 +336,40 @@ test('serialToIso: spreadsheet serial dates, with or without a time of day', () 
   assert.equal(C.serialToIso(46343), '2026-11-17');
   assert.equal(C.serialToIso(46343.99), '2026-11-17');
   assert.equal(C.serialToIso(1), '1899-12-31');
+});
+
+test('combined workouts: every part must be met; shared goals count once at the higher minimum', () => {
+  const goals = C.parseGoals([
+    ['Upper', 'Section', 'Push', 2], ['Upper', 'Section', 'Core', 1],
+    ['Lower', 'Section', 'Legs', 2], ['Lower', 'Section', 'Core', 2],
+    ['Skate', 'Exercise', 'Figure skating', ''],
+  ]);
+  assert.deepEqual(C.workoutParts(' Upper+ Skate '), ['Upper', 'Skate']);
+  const both = C.dayProgress(goals, 'Upper + Skate', logged({ push: 2, core: 1 }, ['figure skating']));
+  assert.equal(both.done, true);
+  assert.deepEqual(both.progress.map((r) => r.name), ['Push', 'Core', 'Figure skating']);
+  assert.equal(C.dayProgress(goals, 'Upper + Skate', logged({ push: 2, core: 1 })).done, false);
+  const ul = C.dayProgress(goals, 'upper + lower', logged({ push: 2, legs: 2, core: 1 }));
+  assert.deepEqual(ul.progress.map((r) => [r.name, r.min]), [['Push', 2], ['Core', 2], ['Legs', 2]]);
+  assert.equal(ul.done, false);
+  assert.equal(C.dayProgress(goals, 'Upper + Yoga', logged({})).unknownWorkout, true);
+});
+
+test('combined workouts: weeks validate each part and store one spelling', () => {
+  const goals = C.parseGoals([['Push', 'Section', 'Push', 2], ['Skate', 'Exercise', 'Figure skating', '']]);
+  const ok = C.validateSave({}, goals, SUN, ['skate+push', 'Push', 'Push', 'Rest', 'Push', 'Rest', 'Rest'], '2026-10-25');
+  assert.equal(ok.ok, true, ok.errors.join());
+  assert.equal(ok.rows[0][1], 'skate + push');
+  const bad = C.validateDefault(goals, ['Skate + Yoga', 'Push', 'Push', 'Rest', 'Push', 'Rest', 'Rest'], '2026-10-25');
+  assert.match(bad.errors.join(), /Sun: unknown workout "Yoga"/);
+  // A combined day counts as one gym day.
+  assert.match(C.validateDefault(goals, ['Skate + Push', 'Push', 'Rest', 'Rest', 'Push', 'Rest', 'Rest'], '2026-10-25').errors.join(), /got 3/);
+});
+
+test('combined workouts: names can not use "+", and a planned part can not be removed', () => {
+  const plan = { days: {}, defaults: C.parseDefaults([['2026-11-01', 'Skate + Push', 'Push', 'Push', 'Rest', 'Push', 'Rest', 'Rest']]) };
+  const push = { name: 'Push', rules: [{ type: 'section', name: 'Push', min: 2 }] };
+  const r = C.validateGoals(plan, [push, { name: 'A+B', rules: [{ type: 'section', name: 'Core', min: 1 }] }], '2026-11-17');
+  assert.match(r.errors.join(), /"A\+B": "\+" joins workouts/);
+  assert.match(r.errors.join(), /"Skate" is still planned on 2026-11-22/);
 });

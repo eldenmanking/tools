@@ -276,7 +276,10 @@ function checkWeek_(goals, days, label, locked) {
     var w = String(days[i] || '').trim() || REST;
     if (isGymDay(w)) {
       gym++;
-      if (!goals[norm_(w)] && !(locked && locked(i))) errors.push(label(i) + ': unknown workout "' + w + '"');
+      w = workoutParts(w).join(' + ');
+      if (!(locked && locked(i))) {
+        unknownParts_(goals, w).forEach(function (p) { errors.push(label(i) + ': unknown workout "' + p + '"'); });
+      }
     } else {
       w = REST;
     }
@@ -388,6 +391,7 @@ function validateGoals(plan, workouts, today) {
     var label = name || 'workout ' + (i + 1);
     if (!name) errors.push(label + ': needs a name');
     else if (!isGymDay(name)) errors.push('"' + name + '" is reserved for rest days');
+    else if (name.indexOf('+') >= 0) errors.push('"' + name + '": "+" joins workouts on one day, so names can\'t use it');
     else if (seen[norm_(name)]) errors.push('"' + name + '" is listed twice');
     seen[norm_(name)] = true;
     var rules = (w && Array.isArray(w.rules)) ? w.rules : [];
@@ -420,10 +424,12 @@ function validateGoals(plan, workouts, today) {
   var reported = {};
   dates.forEach(function (d) {
     var w = workoutFor(p, d);
-    if (isGymDay(w) && !goals[norm_(w)] && !reported[norm_(w)]) {
-      reported[norm_(w)] = true;
-      errors.push('"' + w + '" is still planned on ' + d + '; change the schedule first');
-    }
+    if (!isGymDay(w)) return;
+    unknownParts_(goals, w).forEach(function (part) {
+      if (reported[norm_(part)]) return;
+      reported[norm_(part)] = true;
+      errors.push('"' + part + '" is still planned on ' + d + '; change the schedule first');
+    });
   });
   return { ok: errors.length === 0, errors: errors, from: from, workouts: out };
 }
@@ -471,9 +477,42 @@ function parseSettings(props) {
 
 // ---- goals and streak ------------------------------------------------------
 
+// A day's plan can combine workouts with "+" ("Upper + Skate"): it is done when
+// every goal of every part is met. A goal shared by parts (same section or
+// exercise) counts once, with the higher minimum.
+function workoutParts(name) {
+  return String(name == null ? '' : name).split('+').map(function (p) { return p.trim(); })
+    .filter(function (p) { return p; });
+}
+
+// The parts of <name> that aren't workouts in <goals>.
+function unknownParts_(goals, name) {
+  return workoutParts(name).filter(function (p) { return !goals[norm_(p)]; });
+}
+
+// The merged { name, rules } for <name> (one workout or several joined by "+"),
+// or null if any part is unknown.
+function workoutGoals(goals, name) {
+  var parts = workoutParts(name);
+  if (!parts.length || unknownParts_(goals, name).length) return null;
+  var rules = [], byKey = {};
+  parts.forEach(function (p) {
+    goals[norm_(p)].rules.forEach(function (r) {
+      var k = r.type + ':' + r.key;
+      if (byKey[k]) {
+        byKey[k].min = Math.max(byKey[k].min, r.min);
+      } else {
+        byKey[k] = { type: r.type, name: r.name, key: r.key, min: r.min };
+        rules.push(byKey[k]);
+      }
+    });
+  });
+  return { name: name, rules: rules };
+}
+
 // <day> is one date's entry from parseExercise (or undefined if nothing was logged).
 function dayProgress(goals, workout, day) {
-  var g = goals[norm_(workout)];
+  var g = workoutGoals(goals, workout);
   if (!g) return { done: false, unknownWorkout: true, progress: [] };
   var sections = (day && day.sections) || {};
   var exercises = (day && day.exercises) || {};
@@ -547,7 +586,7 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
 if (typeof module !== 'undefined') {
   module.exports = {
     addDays: addDays, serialToIso: serialToIso, dayOfWeek: dayOfWeek, weekStartOf: weekStartOf, isIsoDate: isIsoDate,
-    exerciseKey: exerciseKey, parseExercise: parseExercise, parseGoals: parseGoals,
+    exerciseKey: exerciseKey, workoutParts: workoutParts, workoutGoals: workoutGoals, parseExercise: parseExercise, parseGoals: parseGoals,
     parseSchedule: parseSchedule, parseAllowlist: parseAllowlist, allowlistFor: allowlistFor,
     parseDefaults: parseDefaults, defaultFor: defaultFor, validateDefault: validateDefault,
     validateAllowlist: validateAllowlist,
