@@ -90,3 +90,47 @@ class RefreshTest {
         assertTrue(shouldFetch(RefreshTrigger.BACKGROUND, unknown, null, now, ago(Duration.ofHours(7)), 1))
     }
 }
+
+class ForegroundTrackerTest {
+    private fun ev(t: Long, pkg: String, kind: AppEvent.Kind) = AppEvent(t, pkg, "$pkg.Main", kind)
+
+    @Test
+    fun keepsStateAcrossBatches() {
+        val t = ForegroundTracker()
+        assertNull(t.update(emptyList()))
+        assertEquals("com.example.video", t.update(listOf(ev(1, "com.example.video", AppEvent.Kind.RESUMED))))
+        // A later poll with no new events keeps the answer.
+        assertEquals("com.example.video", t.update(emptyList()))
+        // The app pauses and the launcher resumes in the next batch.
+        val next = listOf(ev(5, "com.example.video", AppEvent.Kind.PAUSED), ev(6, "com.example.launcher", AppEvent.Kind.RESUMED))
+        assertEquals("com.example.launcher", t.update(next))
+        // The same events again (overlapping windows) change nothing.
+        assertEquals("com.example.launcher", t.update(next))
+    }
+
+    @Test
+    fun aPauseWithNothingResumedKeepsTheLastAnswer() {
+        val t = ForegroundTracker()
+        t.update(listOf(ev(1, "com.example.notes", AppEvent.Kind.RESUMED)))
+        assertEquals("com.example.notes", t.update(listOf(ev(2, "com.example.notes", AppEvent.Kind.PAUSED))))
+    }
+}
+
+class NoticeTest {
+    private val status = Status(
+        today = "2026-11-17", todayScheduled = true, workout = "Upper", blocked = true, streak = 12, tokens = 1,
+        goalsProgress = listOf(
+            GoalProgress("section", "Push", 2.0, 1, false),
+            GoalProgress("section", "Pull", 2.0, 2, true),
+            GoalProgress("section", "Core", 1.0, 0, false),
+        ),
+    )
+
+    @Test
+    fun saysWhatIsLockedAndTheStreak() {
+        assertEquals(Notice("Locked · Upper · 1 of 3 goals", "Streak 12 · Tokens 1 of 2"), notice(GateState.Locked(status), status))
+        assertEquals(Notice("Done for today · Upper", "Streak 12 · Tokens 1 of 2"), notice(GateState.Open, status))
+        assertEquals("Rest day", notice(GateState.Open, status.copy(todayScheduled = false)).title)
+        assertEquals(Notice("Locked · today not checked yet", "Not checked yet."), notice(GateState.Unknown("Not checked yet."), null))
+    }
+}

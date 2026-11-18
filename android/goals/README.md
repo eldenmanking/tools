@@ -17,11 +17,14 @@ goals
 │   ├── src/main/kotlin/goals/app
 │   │   ├── GateActivity.kt    --- full-screen gate over a gated app; back goes to the launcher
 │   │   ├── GoalsApp.kt        --- picks the gate or home screen, runs "Check again"
-│   │   ├── MainActivity.kt    --- the app's own screen
-│   │   ├── data               --- status cache (SharedPreferences) and status sources
-│   │   └── ui                 --- e-ink kit (Ink.kt) and the screens from the mocks
+│   │   ├── MainActivity.kt    --- the app's own screen: setup checklist, then home or gate
+│   │   ├── Permissions.kt     --- the permissions the gate needs and their settings screens
+│   │   ├── data               --- status cache (a file both processes read) and status sources
+│   │   ├── ui                 --- e-ink kit (Ink.kt) and the screens from the mocks
+│   │   └── watch              --- WatchService (the :watch process) and BootReceiver
 │   └── src/test               --- Paparazzi screenshot tests; snapshots/ holds the recorded PNGs
-├── core                   --- plain Kotlin, no Android SDK: status JSON, gate decision, week strip, foreground app, refresh timing
+├── core                   --- plain Kotlin, no Android SDK: status JSON, gate decision, week strip,
+│                              foreground app, refresh timing, notification text
 ├── build.gradle.kts, settings.gradle.kts, gradle.properties, gradlew, gradle/
 └── .gitignore
 ```
@@ -84,7 +87,8 @@ Rules that keep it there (step 3 follows them):
 2. Android skeleton and the gate screen, with a manual unlock for testing (done; uses
    `SampleStatusSource`, a stand-in for the endpoint, with a debug-only "I finished" button).
 3. Foreground service, app detection, and the permissions flow (usage access, overlay,
-   notifications).
+   notifications, battery). Done: `WatchService` in `:watch`, `SetupScreen`, persistent
+   notification.
 4. Wire up the endpoint and add the persistent notification.
 5. Schedule editor.
 6. On the device: check that the background service survives (exempt the app from battery

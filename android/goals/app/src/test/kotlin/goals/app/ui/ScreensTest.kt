@@ -4,6 +4,7 @@ import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import com.android.resources.Density
 import com.android.resources.ScreenOrientation
+import goals.app.Need
 import goals.core.DayEvent
 import goals.core.GoalProgress
 import goals.core.Status
@@ -78,5 +79,10 @@ class ScreensTest {
             history = listOf(DayEvent("2026-11-16", "Lower", "done"), DayEvent("2026-11-17", "Upper", "done")),
         )
         HomeScreen(done, notice = null, onSchedule = {}, onAllowlist = {})
+    }
+
+    @Test
+    fun setup() = paparazzi.snapshot {
+        SetupScreen(missing = listOf(Need.OVERLAY, Need.BATTERY), onOpen = {}, onSkip = null)
     }
 }

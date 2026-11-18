@@ -13,19 +13,36 @@ data class AppEvent(val timeMillis: Long, val packageName: String, val className
 }
 
 /**
- * The package in front after [events] (any order): the most recently resumed activity
- * that hasn't been paused since. Null when nothing is resumed, e.g. the window held no
- * events; the caller then keeps its last answer.
+ * Tracks the app in front across polls of the usage events. Feed it each new batch of
+ * events with [update]; it keeps which activities are resumed between batches, so a
+ * batch with nothing new keeps the last answer. Duplicate events (overlapping query
+ * windows) are harmless.
  */
-fun foregroundPackage(events: List<AppEvent>): String? {
-    val resumed = HashMap<Pair<String, String>, Long>()
-    for (e in events.sortedBy { it.timeMillis }) {
-        val key = e.packageName to e.className
-        when (e.kind) {
-            AppEvent.Kind.RESUMED -> resumed[key] = e.timeMillis
-            AppEvent.Kind.PAUSED -> resumed.remove(key)
-            AppEvent.Kind.OTHER -> Unit
+class ForegroundTracker {
+    private val resumed = HashMap<Pair<String, String>, Long>()
+
+    /** The package in front, or null before any activity was seen resumed. */
+    var current: String? = null
+        private set
+
+    fun update(events: List<AppEvent>): String? {
+        for (e in events.sortedBy { it.timeMillis }) {
+            val key = e.packageName to e.className
+            when (e.kind) {
+                AppEvent.Kind.RESUMED -> resumed[key] = e.timeMillis
+                AppEvent.Kind.PAUSED -> resumed.remove(key)
+                AppEvent.Kind.OTHER -> Unit
+            }
         }
+        // Nothing resumed (e.g. between one activity pausing and the next resuming):
+        // keep the last answer rather than report nothing.
+        resumed.maxByOrNull { it.value }?.key?.first?.let { current = it }
+        return current
     }
-    return resumed.maxByOrNull { it.value }?.key?.first
 }
+
+/**
+ * The package in front after [events] (any order): the most recently resumed activity
+ * that hasn't been paused since, or null when nothing is resumed.
+ */
+fun foregroundPackage(events: List<AppEvent>): String? = ForegroundTracker().update(events)
