@@ -6,13 +6,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import goals.app.data.SampleStatusSource
 import goals.app.data.StatusSource
 import goals.app.data.StatusStore
+import goals.app.ui.AllowlistScreen
+import goals.app.ui.AppFrame
 import goals.app.ui.GateScreen
 import goals.app.ui.HomeCheck
 import goals.app.ui.HomeScreen
+import goals.app.ui.ScheduleScreen
+import goals.app.ui.Tab
 import goals.core.GateState
 import goals.core.StatusResult
 import goals.core.gateState
@@ -25,15 +30,16 @@ import java.time.ZoneId
  * Shows the gate or the home screen for the cached status, and checks for a fresh one
  * on start and on "Check again". The screen only changes when the status does, so e-ink
  * redraws stay rare. [onOpen] is set in GateActivity and runs when the gate state becomes
- * Open (it finishes). Without it this is the app's own screen, which never gates itself: it
- * shows home whenever the status is for today, blocked or not.
+ * Open (it finishes). Without it this is the app's own screen, with Status, Schedule and
+ * Allowlist tabs; it never gates itself, so Status shows home whenever the status is for today,
+ * blocked or not.
  */
 @Composable
 fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = null) {
     var cached by remember { mutableStateOf(store.load()) }
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
+    var tab by rememberSaveable { mutableStateOf(Tab.Status) }
     val scope = rememberCoroutineScope()
 
     val check: () -> Unit = {
@@ -65,16 +71,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     } else {
         null
     }
-    val home = status != null && (state == GateState.Open || (onOpen == null && state is GateState.Locked))
-    if (home && status != null) {
-        HomeScreen(
-            status = status,
-            notice = notice,
-            onSchedule = { notice = "The schedule editor comes in a later step." },
-            onAllowlist = { notice = "The allowlist picker comes in a later step." },
-            check = HomeCheck(checking, error, check, debugUnlock),
-        )
-    } else {
+    val gate = @Composable {
         GateScreen(
             today = if (state is GateState.Locked) state.status.today else LocalDate.now(zone).toString(),
             status = status,
@@ -84,5 +81,21 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
             onCheckAgain = check,
             onDebugUnlock = debugUnlock,
         )
+    }
+    if (onOpen != null) {
+        gate()
+        return
+    }
+    AppFrame(tab, { tab = it }) {
+        when (tab) {
+            Tab.Status ->
+                if (status != null && (state == GateState.Open || state is GateState.Locked)) {
+                    HomeScreen(status, HomeCheck(checking, error, check, debugUnlock))
+                } else {
+                    gate()
+                }
+            Tab.Schedule -> ScheduleScreen(status)
+            Tab.Allowlist -> AllowlistScreen(status)
+        }
     }
 }

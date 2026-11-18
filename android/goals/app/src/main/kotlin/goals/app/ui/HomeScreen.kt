@@ -11,9 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,31 +23,24 @@ import goals.core.WeekCell
 import goals.core.weekCells
 
 /**
- * The app's own screen (mock: "Home (done for today)"). The app never gates itself, so while
- * today is blocked this shows today's goals and "Check again" too, through [check].
+ * The Status tab (mock: "Home (done for today)"). The app never gates itself, so while today is
+ * blocked this shows today's goals and "Check again" too, through [check].
  */
 @Composable
-fun HomeScreen(
-    status: Status,
-    notice: String?,
-    onSchedule: () -> Unit,
-    onAllowlist: () -> Unit,
-    check: HomeCheck? = null,
-) {
+fun HomeScreen(status: Status, check: HomeCheck? = null) {
     val (title, body) = when {
-        status.blocked -> "Gym first." to "Other apps are locked until today's ${status.workout} workout is in your log."
+        status.blocked -> "Gym first." to "Other apps unlock once ${status.workout} is in your log."
         !status.todayScheduled && status.week.isEmpty() -> "Nothing planned." to "Set a schedule to start your streak."
         !status.todayScheduled -> "Rest day." to "Nothing is locked today."
         else -> "Done for today." to "${status.workout} is logged. Every app is open until tomorrow."
     }
     Column(
-        modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(Ink.Gutter),
-        verticalArrangement = Arrangement.spacedBy(32.dp),
+        modifier = Modifier.fillMaxSize().background(Ink.White).padding(Ink.Gutter),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             InkLabel(dayHeader(status.today))
-            InkText(title, size = 60.sp, bold = true)
+            InkText(title, size = 52.sp, bold = true)
             InkText(body)
         }
 
@@ -77,12 +67,7 @@ fun HomeScreen(
         Spacer(Modifier.weight(1f))
 
         if (status.blocked && check != null) {
-            CheckButtons(status, check.checking, check.error, check.onCheckAgain, check.onDebugUnlock)
-        }
-        if (notice != null) InkText(notice, size = 20.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            InkButton("Schedule", onSchedule, Modifier.weight(1f), filled = false)
-            InkButton("Allowlist", onAllowlist, Modifier.weight(1f), filled = false)
+            CheckButtons(status, check.checking, check.error, check.onCheckAgain, check.onDebugUnlock, caption = false)
         }
     }
 }

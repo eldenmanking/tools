@@ -1,8 +1,6 @@
 package goals.app.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,13 +34,12 @@ fun GateScreen(
     onDebugUnlock: (() -> Unit)?,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(Ink.Gutter),
-        verticalArrangement = Arrangement.spacedBy(32.dp),
+        modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding().padding(Ink.Gutter),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             InkLabel(dayHeader(today))
-            InkText("Gym first.", size = 60.sp, bold = true)
+            InkText("Gym first.", size = 52.sp, bold = true)
             InkText(
                 if (unknownReason == null && status != null) {
                     "Apps are locked until today's ${status.workout} workout is in your log."
@@ -74,7 +71,7 @@ fun GoalsList(status: Status) {
             status.goalsProgress.map { g ->
                 @Composable {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -91,18 +88,29 @@ fun GoalsList(status: Status) {
     }
 }
 
-/** "Check again" with when the status was last checked, and the debug unlock if given. */
+/**
+ * "Check again" and the debug unlock if given. Below them: an error, or (with [caption]) when the
+ * status was last checked and what to do.
+ */
 @Composable
-fun CheckButtons(status: Status?, checking: Boolean, error: String?, onCheckAgain: () -> Unit, onDebugUnlock: (() -> Unit)?) {
+fun CheckButtons(
+    status: Status?,
+    checking: Boolean,
+    error: String?,
+    onCheckAgain: () -> Unit,
+    onDebugUnlock: (() -> Unit)?,
+    caption: Boolean = true,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         if (onDebugUnlock != null) {
             InkButton("I finished (debug)", onDebugUnlock, Modifier.fillMaxWidth(), filled = false)
         }
         InkButton(if (checking) "Checking…" else "Check again", onCheckAgain, Modifier.fillMaxWidth())
         val last = checkedAt(status?.serverTime, status?.timeZone)
-        InkText(
-            error?.let { "Couldn't check: $it" }
-                ?: ((if (last != null) "Last checked $last. " else "") + "Log it in your sheet, then check again."),
+        val text = error?.let { "Couldn't check: $it" }
+            ?: if (caption) (if (last != null) "Last checked $last. " else "") + "Log it in your sheet, then check again." else null
+        if (text != null) InkText(
+            text,
             size = 20.sp,
             align = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),

@@ -28,7 +28,8 @@ class ScreensTest {
             density = Density.XHIGH,
             orientation = ScreenOrientation.PORTRAIT,
         ),
-        showSystemUi = false,
+        // Draws the status bar, so the screens get the height they get on the tablet.
+        showSystemUi = true,
     )
 
     private val week = listOf("Rest", "Lower", "Upper", "Skate", "Lower", "Upper", "Rest")
@@ -79,12 +80,22 @@ class ScreensTest {
             streak = 13,
             history = listOf(DayEvent("2026-11-16", "Lower", "done"), DayEvent("2026-11-17", "Upper", "done")),
         )
-        HomeScreen(done, notice = null, onSchedule = {}, onAllowlist = {})
+        AppFrame(Tab.Status, {}) { HomeScreen(done) }
     }
 
     @Test
     fun homeLocked() = paparazzi.snapshot {
-        HomeScreen(locked, notice = null, onSchedule = {}, onAllowlist = {}, check = HomeCheck(false, null, {}, null))
+        AppFrame(Tab.Status, {}) { HomeScreen(locked, HomeCheck(false, null, {}, null)) }
+    }
+
+    @Test
+    fun schedule() = paparazzi.snapshot {
+        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked) }
+    }
+
+    @Test
+    fun allowlist() = paparazzi.snapshot {
+        AppFrame(Tab.Allowlist, {}) { AllowlistScreen(locked.copy(allowlist = listOf("com.example.notes", "com.example.reader"))) }
     }
 
     @Test
