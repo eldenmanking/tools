@@ -112,7 +112,8 @@ What the tablet's own framework does (from a decompiled `services.jar` of firmwa
 3. Foreground service, app detection, and the permissions flow (usage access, overlay,
    notifications, battery). Done: `WatchService` in `:watch`, `SetupScreen`, persistent
    notification.
-4. Wire up the endpoint and add the persistent notification.
+4. Wire up the endpoint and add the persistent notification. Done: `HttpStatusSource` reads
+   `gate.url` and `gate.token` from `local.properties`; without them the app shows sample data.
 5. Schedule, default week, goals and allowlist editors.
 6. On the device: check that the background service survives (exempt the app from battery
    optimization), then polish for e-ink.
@@ -124,6 +125,14 @@ Open this folder (`android/goals`) in Android Studio, or run:
     ./gradlew :core:test                  # unit tests for the logic
     ./gradlew :app:verifyPaparazziDebug   # screenshots of the screens, no emulator needed
     ./gradlew :app:recordPaparazziDebug   # re-record them after a deliberate UI change
+
+To use the real endpoint, add the Apps Script `/exec` URL and token to `local.properties`
+(gitignored), then rebuild:
+
+    gate.url=https://script.google.com/macros/s/<id>/exec
+    gate.token=<TOKEN from setup>
+
+The token ends up inside the APK, so don't share builds made with it.
 
 `core` builds without the Android SDK. Where Google's Maven repository can't be reached, use
 `GOALS_CORE_ONLY=1 gradle :core:test`.

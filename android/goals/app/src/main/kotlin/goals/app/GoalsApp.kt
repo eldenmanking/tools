@@ -19,8 +19,10 @@ import goals.app.ui.HomeScreen
 import goals.app.ui.ScheduleScreen
 import goals.app.ui.Tab
 import goals.core.GateState
+import goals.core.RefreshTrigger
 import goals.core.StatusResult
 import goals.core.gateState
+import goals.core.shouldFetch
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -34,6 +36,12 @@ import java.time.ZoneId
  * Allowlist tabs; it never gates itself, so Status shows home whenever the status is for today,
  * blocked or not.
  */
+/** Fetch attempts in this (UI) process, for [shouldFetch]. */
+private object Fetches {
+    var lastAttempt: Instant? = null
+    var failures = 0
+}
+
 @Composable
 fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = null) {
     var cached by remember { mutableStateOf(store.load()) }
@@ -42,23 +50,32 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     var tab by rememberSaveable { mutableStateOf(Tab.Status) }
     val scope = rememberCoroutineScope()
 
-    val check: () -> Unit = {
-        if (!checking) {
+    val fetch: (RefreshTrigger) -> Unit = { trigger ->
+        val now = Instant.now()
+        val state = gateState(cached, now, ZoneId.systemDefault())
+        if (!checking && shouldFetch(trigger, state, cached, now, Fetches.lastAttempt, Fetches.failures)) {
             checking = true
+            Fetches.lastAttempt = now
             scope.launch {
                 when (val r = source.fetch()) {
                     is StatusResult.Ok -> {
                         store.save(r.status)
                         cached = r.status
                         error = null
+                        Fetches.failures = 0
                     }
-                    is StatusResult.Error -> error = r.message
+                    is StatusResult.Error -> {
+                        error = r.message
+                        Fetches.failures++
+                    }
                 }
                 checking = false
             }
         }
     }
-    LaunchedEffect(Unit) { check() }
+    val check: () -> Unit = { fetch(RefreshTrigger.USER) }
+    // The gate over a blocked app fetches less often than opening the app itself.
+    LaunchedEffect(Unit) { fetch(if (onOpen != null) RefreshTrigger.GATED_APP_OPENED else RefreshTrigger.USER) }
 
     // The sheet's time zone once a status has given it, else the device's.
     val zone = cached?.timeZone?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.systemDefault()

@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -18,6 +19,14 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1"
+        // The Apps Script /exec URL and token, from local.properties (kept out of git). Without
+        // them the app shows sample data.
+        val local = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.exists() }?.reader()?.use { load(it) }
+        }
+        fun quoted(key: String) = "\"" + local.getProperty(key, "").replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        buildConfigField("String", "GATE_URL", quoted("gate.url"))
+        buildConfigField("String", "GATE_TOKEN", quoted("gate.token"))
     }
 
     buildTypes {

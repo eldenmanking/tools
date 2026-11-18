@@ -5,7 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
-import goals.app.data.SampleStatusSource
+import goals.app.data.StatusSources
 import goals.app.data.StatusStore
 
 /**
@@ -19,7 +19,7 @@ class GateActivity : ComponentActivity() {
             override fun handleOnBackPressed() = goHome()
         })
         val store = StatusStore(this)
-        setContent { GoalsApp(store, SampleStatusSource, onOpen = { finish() }) }
+        setContent { GoalsApp(store, StatusSources.default, onOpen = { finish() }) }
     }
 
     private fun goHome() {

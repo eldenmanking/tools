@@ -11,13 +11,13 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
-/** Where statuses come from. Step 4 adds the Apps Script endpoint. */
+/** Where statuses come from: the Apps Script endpoint ([HttpStatusSource]) or the sample. */
 interface StatusSource {
     suspend fun fetch(): StatusResult
 }
 
 /**
- * Step 2 stand-in for the endpoint: today is an Upper day (Push 1/2, Pull 2/2, Core 0/1),
+ * Stand-in for the endpoint when local.properties doesn't name one: today is an Upper day (Push 1/2, Pull 2/2, Core 0/1),
  * matching the mocks, until [markDone] (the debug "I finished" button) meets every goal.
  */
 object SampleStatusSource : StatusSource {

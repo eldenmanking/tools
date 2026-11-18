@@ -29,7 +29,9 @@ import goals.core.weekCells
 fun HomeScreen(status: Status, check: HomeCheck? = null) {
     val (title, body) = when {
         status.blocked -> "Gym first." to "Other apps unlock once ${status.workout} is in your log."
-        !status.todayScheduled && status.week.isEmpty() -> "Nothing planned." to "Set a schedule to start your streak."
+        // A day with no source has nothing planned: no saved week, default or earlier week to copy.
+        !status.todayScheduled && status.week.all { it.source == null } ->
+            "Nothing planned." to "Set a schedule to start your streak."
         !status.todayScheduled -> "Rest day." to "Nothing is locked today."
         else -> "Done for today." to "${status.workout} is logged. Every app is open until tomorrow."
     }

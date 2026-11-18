@@ -6,7 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import goals.app.data.SampleStatusSource
+import goals.app.data.StatusSources
 import goals.app.data.StatusStore
 import goals.app.ui.SetupScreen
 import goals.app.watch.WatchService
@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
                     onSkip = if (required) null else ({ skippedOptional = true }),
                 )
             } else {
-                GoalsApp(store, SampleStatusSource)
+                GoalsApp(store, StatusSources.default)
             }
         }
     }
