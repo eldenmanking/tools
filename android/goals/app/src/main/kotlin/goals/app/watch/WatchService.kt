@@ -169,7 +169,11 @@ class WatchService : Service() {
             .build()
     }
 
-    /** This app, the launcher(s), Settings and the screens needed to grant permissions. */
+    /**
+     * This app, the launcher(s), Settings and the package installer. Not the permission
+     * controller: a gated app could keep raising its own permission dialog to stay in front,
+     * and the gate's permissions are all granted on Settings screens anyway.
+     */
     private fun alwaysAllowed(): Set<String> {
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
         val launchers = packageManager.queryIntentActivities(home, PackageManager.MATCH_ALL)
@@ -186,8 +190,6 @@ class WatchService : Service() {
         private val SYSTEM_ALLOWED = setOf(
             "com.android.settings",
             "com.android.systemui",
-            "com.android.permissioncontroller",
-            "com.google.android.permissioncontroller",
             "com.android.packageinstaller",
             "com.google.android.packageinstaller",
             "com.android.phone", // emergency calls

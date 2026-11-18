@@ -67,6 +67,7 @@ memory only this app uses, which is roughly what it adds.
 | Release, background after a `COMPLETE` trim | 19,000 | 13,600 | native drops to 8,200; cached, killable |
 | Debug, app open | 55,200 | 47,000 | 20,500 code (no R8); never install debug |
 | UI-less foreground service in its own process | 7,300 | 4,500 | probe; `oom_adj` 200 so it stays alive |
+| `WatchService` (`:watch`), screen on, polling | 8,200 | 5,100 | the real watcher; the UI process can be killed meanwhile |
 | For scale: system app processes without UI | 6,400–9,600 | | e.g. providers.calendar, keychain |
 
 Rules that keep it there (step 3 follows them):
@@ -81,6 +82,17 @@ Rules that keep it there (step 3 follows them):
 - On the tablet, GPU buffers show up under Graphics, which the emulator's software renderer
   reports as 0. Check with `adb shell dumpsys meminfo goals.app` and `goals.app:watch` on the
   device.
+
+## Background survival
+Checked on the Android 13 emulator with the watcher running and no battery exemption:
+- Forced deep Doze for 3 minutes, screen off: `:watch` stayed alive, and a blocked app was
+  gated 2 s after waking. The foreground service keeps the app in the active standby bucket
+  (`am set-standby-bucket restricted` doesn't stick).
+- `kill -9` of `:watch` (what the low-memory killer does): restarted in about 5 s.
+- Settings > Force stop: stays stopped until Gym Gate is opened again. Android allows nothing
+  else, and Settings has to stay reachable so the tablet can't be locked out. This is the
+  known way around the gate, along with revoking usage access.
+- Vendor task killers aren't covered by the emulator; check on the tablet.
 
 ## Build order
 1. Apps Script and tests (done).
