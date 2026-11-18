@@ -4,6 +4,8 @@ plugins {
     id("com.android.application")
     kotlin("android")
     kotlin("plugin.compose")
+    // Screenshot tests rendered on the JVM: ./gradlew :app:verifyPaparazziDebug
+    id("app.cash.paparazzi")
 }
 
 android {

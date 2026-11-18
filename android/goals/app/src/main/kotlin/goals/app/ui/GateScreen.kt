@@ -19,11 +19,13 @@ import goals.core.MAX_TOKENS
 import goals.core.Status
 
 /**
- * The gate (mock: "Gate (locked)"). [status] is the last status fetched; [unknownReason] is
- * set when it can't vouch for today, in which case the goals list is left out.
+ * The gate (mock: "Gate (locked)"). [today] (yyyy-mm-dd) heads the screen. [status] is the
+ * last status fetched; [unknownReason] is set when it can't vouch for today, in which case
+ * the goals list is left out.
  */
 @Composable
 fun GateScreen(
+    today: String,
     status: Status?,
     unknownReason: String?,
     checking: Boolean,
@@ -36,7 +38,7 @@ fun GateScreen(
         verticalArrangement = Arrangement.spacedBy(32.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            InkLabel(dayHeader(if (unknownReason == null) status?.today else null))
+            InkLabel(dayHeader(today))
             InkText("Gym first.", size = 60.sp, bold = true)
             InkText(
                 if (unknownReason == null && status != null) {
@@ -82,7 +84,7 @@ fun GateScreen(
                 InkButton("I finished (debug)", onDebugUnlock, Modifier.fillMaxWidth(), filled = false)
             }
             InkButton(if (checking) "Checking…" else "Check again", onCheckAgain, Modifier.fillMaxWidth())
-            val last = checkedAt(status?.serverTime)
+            val last = checkedAt(status?.serverTime, status?.timeZone)
             InkText(
                 error?.let { "Couldn't check: $it" }
                     ?: ((if (last != null) "Last checked $last. " else "") + "Log it in your sheet, then check again."),

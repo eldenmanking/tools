@@ -14,12 +14,13 @@ goals
 │   ├── README.md          --- sheet layout, rules, deploy steps
 │   └── tests              --- Node tests with fake dates
 ├── app                    --- the Android app (Compose foundation, no Material)
-│   └── src/main/kotlin/goals/app
-│       ├── GateActivity.kt    --- full-screen gate over a gated app; back goes to the launcher
-│       ├── GoalsApp.kt        --- picks the gate or home screen, runs "Check again"
-│       ├── MainActivity.kt    --- the app's own screen
-│       ├── data               --- status cache (SharedPreferences) and status sources
-│       └── ui                 --- e-ink kit (Ink.kt) and the screens from the mocks
+│   ├── src/main/kotlin/goals/app
+│   │   ├── GateActivity.kt    --- full-screen gate over a gated app; back goes to the launcher
+│   │   ├── GoalsApp.kt        --- picks the gate or home screen, runs "Check again"
+│   │   ├── MainActivity.kt    --- the app's own screen
+│   │   ├── data               --- status cache (SharedPreferences) and status sources
+│   │   └── ui                 --- e-ink kit (Ink.kt) and the screens from the mocks
+│   └── src/test               --- Paparazzi screenshot tests; snapshots/ holds the recorded PNGs
 ├── core                   --- plain Kotlin, no Android SDK: status JSON, gate decision, week strip, foreground app, refresh timing
 ├── build.gradle.kts, settings.gradle.kts, gradle.properties, gradlew, gradle/
 └── .gitignore
@@ -53,7 +54,7 @@ goals
 
 ## Build order
 1. Apps Script and tests (done).
-2. Android skeleton and the gate screen, with a manual unlock for testing (written; uses
+2. Android skeleton and the gate screen, with a manual unlock for testing (done; uses
    `SampleStatusSource`, a stand-in for the endpoint, with a debug-only "I finished" button).
 3. Foreground service, app detection, and the permissions flow (usage access, overlay,
    notifications).
@@ -65,8 +66,10 @@ goals
 ## Building
 Open this folder (`android/goals`) in Android Studio, or run:
 
-    ./gradlew :app:installDebug      # build and install on the emulator or a device
-    ./gradlew :core:test             # unit tests for the logic
+    ./gradlew :app:installDebug           # build and install on the emulator or a device
+    ./gradlew :core:test                  # unit tests for the logic
+    ./gradlew :app:verifyPaparazziDebug   # screenshots of the screens, no emulator needed
+    ./gradlew :app:recordPaparazziDebug   # re-record them after a deliberate UI change
 
 `core` builds without the Android SDK. Where Google's Maven repository can't be reached, use
 `GOALS_CORE_ONLY=1 gradle :core:test`.

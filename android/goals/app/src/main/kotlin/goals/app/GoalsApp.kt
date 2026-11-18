@@ -17,6 +17,7 @@ import goals.core.StatusResult
 import goals.core.gateState
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -50,6 +51,8 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     }
     LaunchedEffect(Unit) { check() }
 
+    // The sheet's time zone once a status has given it, else the device's.
+    val zone = cached?.timeZone?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.systemDefault()
     val state = gateState(cached, Instant.now(), ZoneId.systemDefault())
     if (state == GateState.Open && onOpen != null) LaunchedEffect(Unit) { onOpen() }
 
@@ -63,6 +66,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
         )
     } else {
         GateScreen(
+            today = if (state is GateState.Locked) state.status.today else LocalDate.now(zone).toString(),
             status = status,
             unknownReason = (state as? GateState.Unknown)?.reason,
             checking = checking,
