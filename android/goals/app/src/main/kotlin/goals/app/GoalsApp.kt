@@ -1,5 +1,6 @@
 package goals.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -10,9 +11,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import goals.app.data.SampleStatusSource
 import goals.app.data.StatusSource
+import goals.app.data.StatusSources
 import goals.app.data.StatusStore
 import goals.app.ui.AllowlistScreen
 import goals.app.ui.AppFrame
+import goals.app.ui.DayPicker
+import goals.app.ui.GoalsScreen
+import goals.app.ui.ScheduleMode
 import goals.app.ui.GateScreen
 import goals.app.ui.HomeCheck
 import goals.app.ui.HomeScreen
@@ -48,6 +53,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf(Tab.Status) }
+    var scheduleMode by rememberSaveable { mutableStateOf(ScheduleMode.Week) }
     val scope = rememberCoroutineScope()
 
     val fetch: (RefreshTrigger) -> Unit = { trigger ->
@@ -74,6 +80,8 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
         }
     }
     val check: () -> Unit = { fetch(RefreshTrigger.USER) }
+    val client = StatusSources.client.takeIf { source === it }
+    val schedule = remember(client) { client?.let { ScheduleModel(it, scope, onSaved = check) } }
     // The gate over a blocked app fetches less often than opening the app itself.
     LaunchedEffect(Unit) { fetch(if (onOpen != null) RefreshTrigger.GATED_APP_OPENED else RefreshTrigger.USER) }
 
@@ -111,7 +119,25 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                 } else {
                     gate()
                 }
-            Tab.Schedule -> ScheduleScreen(status)
+            Tab.Schedule -> {
+                LaunchedEffect(Unit) { schedule?.loadOnce() }
+                val picking = schedule?.picking
+                val draft = schedule?.draft
+                if (schedule != null && picking != null && draft != null) {
+                    BackHandler { schedule.picking = null }
+                    DayPicker(picking, schedule.view?.workouts.orEmpty(), draft[picking], { schedule.pick(picking, it) }, { schedule.picking = null })
+                } else {
+                    ScheduleScreen(status, scheduleMode, { scheduleMode = it }, schedule?.editor())
+                }
+            }
+            Tab.Goals -> {
+                LaunchedEffect(Unit) { schedule?.loadOnce() }
+                GoalsScreen(
+                    goals = schedule?.view?.goals,
+                    message = if (schedule == null) "Add gate.url and gate.token to local.properties to see your goals." else schedule.loadError,
+                    onRetry = schedule?.takeIf { it.loadError != null && !it.loading }?.let { s -> { s.load() } },
+                )
+            }
             Tab.Allowlist -> AllowlistScreen(status)
         }
     }

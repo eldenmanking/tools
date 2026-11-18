@@ -11,7 +11,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
-/** Where statuses come from: the Apps Script endpoint ([HttpStatusSource]) or the sample. */
+/** Where statuses come from: the Apps Script endpoint ([GateClient]) or the sample. */
 interface StatusSource {
     suspend fun fetch(): StatusResult
 }

@@ -49,7 +49,8 @@ goals
    - The gate shows the streak, tokens, today's goals and progress, and a "Check again" button.
    - A persistent notification shows the streak, tokens and today's status. It is redrawn only
      when something changes.
-   - The app also has a schedule editor, a goals editor and an allowlist picker.
+   - The app's own screen has Status, Schedule, Goals and Allowlist tabs, for the schedule and
+     default week, the goals and the allowlist.
    - The last status is cached for offline use. The app checks the status when a blocked app
      opens, and refreshes it infrequently in the background (see Memory: no WorkManager).
    - A cached status counts only for the day it is from (in the sheet's time zone) and only while
@@ -112,9 +113,10 @@ What the tablet's own framework does (from a decompiled `services.jar` of firmwa
 3. Foreground service, app detection, and the permissions flow (usage access, overlay,
    notifications, battery). Done: `WatchService` in `:watch`, `SetupScreen`, persistent
    notification.
-4. Wire up the endpoint and add the persistent notification. Done: `HttpStatusSource` reads
+4. Wire up the endpoint and add the persistent notification. Done: `GateClient` reads
    `gate.url` and `gate.token` from `local.properties`; without them the app shows sample data.
-5. Schedule, default week, goals and allowlist editors.
+5. Schedule, default week, goals and allowlist editors. Done so far: tabs (Status, Schedule, Goals,
+   Allowlist) and the default week editor; goals and allowlist are shown read-only.
 6. On the device: check that the background service survives (exempt the app from battery
    optimization), then polish for e-ink.
 

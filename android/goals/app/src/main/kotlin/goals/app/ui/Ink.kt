@@ -2,6 +2,8 @@ package goals.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
@@ -151,5 +153,48 @@ fun InkList(rows: List<@Composable () -> Unit>, modifier: Modifier = Modifier) {
             if (i > 0) Box(Modifier.fillMaxWidth().height(Ink.ThinRule).background(Ink.Black))
             row()
         }
+    }
+}
+
+/**
+ * A row of equal cells, one per label; the selected one is a solid black block. [framed] draws a
+ * border around the row (a switch inside a page) rather than leaving it to the caller (the tab bar).
+ */
+@Composable
+fun InkSegments(
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 56.dp,
+    framed: Boolean = true,
+) {
+    Row(modifier.fillMaxWidth().height(height).then(if (framed) Modifier.border(Ink.Rule, Ink.Black) else Modifier)) {
+        labels.forEachIndexed { i, label ->
+            if (i > 0) Box(Modifier.width(Ink.ThinRule).fillMaxHeight().background(Ink.Black))
+            val on = i == selected
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight()
+                    .then(if (on) Modifier.background(Ink.Black) else Modifier)
+                    .clickable(interactionSource = null, indication = null, role = Role.Tab) { onSelect(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                InkText(label, size = 20.sp, bold = true, color = if (on) Ink.White else Ink.Black)
+            }
+        }
+    }
+}
+
+/** A list row that can be tapped: [label] on the left, [value] in bold on the right. */
+@Composable
+fun InkRow(label: String, value: String, onClick: (() -> Unit)? = null, bold: Boolean = false, valueBold: Boolean = true) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick) else Modifier)
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        InkText(label, size = 22.sp, bold = bold, modifier = Modifier.weight(1f))
+        InkText(value, size = 22.sp, bold = valueBold)
     }
 }

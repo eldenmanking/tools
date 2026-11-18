@@ -7,6 +7,9 @@ import com.android.resources.ScreenOrientation
 import goals.app.Need
 import goals.core.DayEvent
 import goals.core.GoalProgress
+import goals.core.GoalRule
+import goals.core.Goals
+import goals.core.Workout
 import goals.core.Status
 import goals.core.WeekDay
 import org.junit.Rule
@@ -97,7 +100,42 @@ class ScreensTest {
 
     @Test
     fun schedule() = paparazzi.snapshot {
-        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked) }
+        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked, ScheduleMode.Week, {}, editor = null) }
+    }
+
+    private val savedDefault = listOf("Rest", "Upper", "Lower", "Rest", "Upper", "Lower", "Skate")
+
+    private fun editor(draft: List<String>, notice: String? = null) = DefaultWeekUi(
+        draft = draft, saved = savedDefault, workouts = listOf("Upper", "Lower", "Skate"), minGymDays = 4,
+        loading = false, saving = false, errors = emptyList(), notice = notice, onRetry = {}, onPickDay = {}, onSave = {},
+    )
+
+    @Test
+    fun defaultWeekSaved() = paparazzi.snapshot {
+        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked, ScheduleMode.Default, {}, editor(savedDefault, "Saved. It starts Thursday, Nov 19.")) }
+    }
+
+    @Test
+    fun defaultWeekTooFewDays() = paparazzi.snapshot {
+        val draft = savedDefault.toMutableList().also { it[1] = "Rest"; it[2] = "Rest" }
+        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked, ScheduleMode.Default, {}, editor(draft)) }
+    }
+
+    @Test
+    fun dayPicker() = paparazzi.snapshot {
+        AppFrame(Tab.Schedule, {}) { DayPicker(1, listOf("Upper", "Lower", "Skate"), "Upper", {}, {}) }
+    }
+
+    @Test
+    fun goals() = paparazzi.snapshot {
+        val goals = Goals(
+            current = listOf(
+                Workout("Upper", listOf(GoalRule("section", "Push", 2.0), GoalRule("section", "Pull", 2.0), GoalRule("section", "Core", 1.0))),
+                Workout("Lower", listOf(GoalRule("section", "Legs", 2.0), GoalRule("section", "Core", 1.0))),
+                Workout("Skate", listOf(GoalRule("exercise", "Figure skating"))),
+            ),
+        )
+        AppFrame(Tab.Goals, {}) { GoalsScreen(goals, null, null) }
     }
 
     @Test
