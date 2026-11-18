@@ -54,3 +54,9 @@ For emulator testing only, set the script property `ALLOW_FAKE_TODAY` to `true`.
 
 ## Tests
     node --test 'android/goals/apps-script/tests/*.test.js'   (from the repo root)
+
+- `core.test.js`: the rules in `Core.js`, with fake dates.
+- `endpoints.test.js`: `Code.js` and `Core.js` run unchanged on `gas.js`, a small in-memory stand-in
+  for the Apps Script services (SpreadsheetApp, Utilities, PropertiesService, ContentService,
+  LockService). It covers `setup`, the token check, every endpoint and the sheet reads and
+  writes, using a made-up Exercise tab laid out like the real one.

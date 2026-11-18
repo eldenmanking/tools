@@ -12,7 +12,7 @@ goals
 │   ├── Code.js            --- web app endpoints (status, schedule, save*), sheet I/O
 │   ├── Core.js            --- pure rules: schedule and default week, goals, streak, tokens, allowlist
 │   ├── README.md          --- sheet layout, rules, deploy steps
-│   └── tests              --- Node tests with fake dates
+│   └── tests              --- Node tests: rules with fake dates, endpoints on a fake Apps Script runtime
 ├── app                    --- the Android app (Compose foundation, no Material)
 │   ├── src/main/kotlin/goals/app
 │   │   ├── GateActivity.kt    --- full-screen gate over a gated app; back goes to the launcher
