@@ -60,6 +60,13 @@ class ScreensTest {
     }
 
     @Test
+    fun gateManyGoals() = paparazzi.snapshot {
+        val many = listOf("Push", "Pull", "Legs", "Core", "Cardio", "Stretch", "Free")
+            .map { GoalProgress("section", it, 2.0, 1, false) }
+        GateScreen("2026-11-17", locked.copy(goalsProgress = many), unknownReason = null, checking = false, error = null, onCheckAgain = {}, onDebugUnlock = null)
+    }
+
+    @Test
     fun gateUnknown() = paparazzi.snapshot {
         GateScreen(
             "2026-11-18",

@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -39,7 +38,7 @@ fun GateScreen(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             InkLabel(dayHeader(today))
-            InkText("Gym first.", size = 52.sp, bold = true)
+            InkText("Gym first.", size = 44.sp, bold = true)
             InkText(
                 if (unknownReason == null && status != null) {
                     "Apps are locked until today's ${status.workout} workout is in your log."
@@ -49,15 +48,16 @@ fun GateScreen(
             )
         }
 
-        if (unknownReason == null && status != null) GoalsList(status)
-        if (status != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                StatBox("${status.streak}", "day streak", Modifier.weight(1f))
-                StatBox("${status.tokens}", "freeze tokens", Modifier.weight(1f), suffix = " of $MAX_TOKENS")
+        // The goals take the space left over and scroll inside their box when there are many.
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            if (unknownReason == null && status != null) GoalsList(status, Modifier.weight(1f, fill = false))
+            if (status != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    StatBox("${status.streak}", "day streak", Modifier.weight(1f))
+                    StatBox("${status.tokens}", "freeze tokens", Modifier.weight(1f), suffix = " of $MAX_TOKENS")
+                }
             }
         }
-
-        Spacer(Modifier.weight(1f))
 
         CheckButtons(status, checking, error, onCheckAgain, onDebugUnlock)
     }
@@ -65,19 +65,21 @@ fun GateScreen(
 
 /** Today's goals and progress, or a note when today's workout has no goals. */
 @Composable
-fun GoalsList(status: Status) {
+fun GoalsList(status: Status, modifier: Modifier = Modifier) {
     if (status.goalsProgress.isNotEmpty()) {
         InkList(
+            modifier = modifier,
+            rows =
             status.goalsProgress.map { g ->
                 @Composable {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        InkCheck(g.met)
-                        InkText(g.name, size = 28.sp, bold = true, modifier = Modifier.weight(1f))
-                        InkText(progressText(g), size = 28.sp)
+                        InkCheck(g.met, size = 28.dp)
+                        InkText(g.name, size = 24.sp, bold = true, modifier = Modifier.weight(1f))
+                        InkText(progressText(g), size = 24.sp)
                     }
                 }
             },

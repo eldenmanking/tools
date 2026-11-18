@@ -2,6 +2,8 @@ package goals.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -131,17 +133,20 @@ fun StatBox(value: String, label: String, modifier: Modifier = Modifier, suffix:
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
-            InkText(value, size = 52.sp, bold = true)
-            if (suffix != null) InkText(suffix, size = 26.sp, modifier = Modifier.padding(bottom = 6.dp))
+            InkText(value, size = 44.sp, bold = true)
+            if (suffix != null) InkText(suffix, size = 24.sp, modifier = Modifier.padding(bottom = 5.dp))
         }
         InkText(label, size = 20.sp)
     }
 }
 
-/** A bordered list; rows are separated by thin rules. */
+/**
+ * A bordered list; rows are separated by thin rules. When [modifier] limits its height (e.g.
+ * `weight(1f, fill = false)`), the rows scroll inside the border.
+ */
 @Composable
 fun InkList(rows: List<@Composable () -> Unit>, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().border(Ink.Rule, Ink.Black)) {
+    Column(modifier.fillMaxWidth().border(Ink.Rule, Ink.Black).padding(Ink.Rule).verticalScroll(rememberScrollState())) {
         rows.forEachIndexed { i, row ->
             if (i > 0) Box(Modifier.fillMaxWidth().height(Ink.ThinRule).background(Ink.Black))
             row()

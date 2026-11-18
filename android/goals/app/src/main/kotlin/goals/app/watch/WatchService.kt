@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import goals.app.GateActivity
 import goals.app.MainActivity
 import goals.app.Permissions
@@ -126,6 +127,7 @@ class WatchService : Service() {
         if (pkg != gatedPkg || now - gatedAt > REGATE_MS) {
             gatedPkg = pkg
             gatedAt = now
+            Log.i(TAG, "gating $pkg")
             startActivity(
                 Intent(this, GateActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
@@ -182,6 +184,7 @@ class WatchService : Service() {
     }
 
     companion object {
+        private const val TAG = "GymGate"
         private const val CHANNEL = "status"
         private const val NOTIFICATION_ID = 1
         private const val POLL_MS = 1_000L

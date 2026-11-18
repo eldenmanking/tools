@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,31 +39,32 @@ fun HomeScreen(status: Status, check: HomeCheck? = null) {
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             InkLabel(dayHeader(status.today))
-            InkText(title, size = 52.sp, bold = true)
+            InkText(title, size = 44.sp, bold = true)
             InkText(body)
         }
 
-        if (status.blocked) GoalsList(status)
+        // The goals take the space left over and scroll inside their box when there are many.
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            if (status.blocked) GoalsList(status, Modifier.weight(1f, fill = false))
 
-        // Left out while blocked, to leave room for the goals.
-        val cells = if (status.blocked) emptyList() else weekCells(status)
-        if (cells.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                InkLabel("This week")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    cells.forEach { WeekDayCell(it, Modifier.weight(1f)) }
+            // Left out while blocked, to leave room for the goals.
+            val cells = if (status.blocked) emptyList() else weekCells(status)
+            if (cells.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    InkLabel("This week")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        cells.forEach { WeekDayCell(it, Modifier.weight(1f)) }
+                    }
+                    InkText("Filled = done · Box = gym day · × missed · F = token used · – rest", size = 18.sp)
                 }
-                InkText("Filled = done · Box = gym day · × missed · F = token used · – rest", size = 18.sp)
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                StatBox("${status.streak}", "streak", Modifier.weight(1f))
+                StatBox("${status.longest}", "longest", Modifier.weight(1f))
+                StatBox("${status.tokens}", "tokens", Modifier.weight(1f), suffix = "/$MAX_TOKENS")
             }
         }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            StatBox("${status.streak}", "streak", Modifier.weight(1f))
-            StatBox("${status.longest}", "longest", Modifier.weight(1f))
-            StatBox("${status.tokens}", "tokens", Modifier.weight(1f), suffix = "/$MAX_TOKENS")
-        }
-
-        Spacer(Modifier.weight(1f))
 
         if (status.blocked && check != null) {
             CheckButtons(status, check.checking, check.error, check.onCheckAgain, check.onDebugUnlock, caption = false)

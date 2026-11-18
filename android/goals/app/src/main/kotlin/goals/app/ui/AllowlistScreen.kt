@@ -17,7 +17,10 @@ fun AllowlistScreen(status: Status?) {
         if (apps.isEmpty()) {
             InkText("None yet.", bold = true)
         } else {
-            InkList(apps.map { pkg -> @Composable { InkText(pkg, size = 22.sp, modifier = Modifier.fillMaxWidth().padding(20.dp)) } })
+            InkList(
+                modifier = Modifier.weight(1f, fill = false),
+                rows = apps.map { pkg -> @Composable { InkText(pkg, size = 22.sp, modifier = Modifier.fillMaxWidth().padding(16.dp)) } },
+            )
         }
         InkText("This app, the launcher and Settings are always open. Picking apps comes in a later step.", size = 20.sp)
     }

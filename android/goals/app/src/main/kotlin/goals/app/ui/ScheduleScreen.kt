@@ -3,6 +3,7 @@ package goals.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +24,8 @@ fun ScheduleScreen(status: Status?) {
         } else {
             InkLabel("This week")
             InkList(
-                status.week.map { d ->
+                modifier = Modifier.weight(1f, fill = false),
+                rows = status.week.map { d ->
                     @Composable {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -47,12 +49,12 @@ fun ScheduleScreen(status: Status?) {
 
 /** A tab's page: a title, then [content], with the usual gutter and spacing. */
 @Composable
-fun TabPage(title: String, content: @Composable () -> Unit) {
+fun TabPage(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(Ink.White).padding(Ink.Gutter),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        InkText(title, size = 52.sp, bold = true)
+        InkText(title, size = 44.sp, bold = true)
         content()
     }
 }
