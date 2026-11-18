@@ -2,7 +2,6 @@ package goals.core
 
 import java.time.DateTimeException
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
 
@@ -33,7 +32,8 @@ fun gateState(cached: Status?, now: Instant, deviceZone: ZoneId): GateState {
     if (checkedAt != null && now.isBefore(checkedAt.minusSeconds(CLOCK_SLACK_SECONDS))) {
         return GateState.Unknown("The clock is behind the last check.")
     }
-    if (LocalDate.ofInstant(now, zone).toString() != cached.today) {
+    // now.atZone(zone).toLocalDate(), not LocalDate.ofInstant: that needs API 34, the tablet is 33.
+    if (now.atZone(zone).toLocalDate().toString() != cached.today) {
         return GateState.Unknown("Last checked ${cached.today}.")
     }
     return if (cached.blocked) GateState.Locked(cached) else GateState.Open

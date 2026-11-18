@@ -38,8 +38,9 @@ object SampleStatusSource : StatusSource {
             WeekDay(d.toString(), w, source = "default", locked = !d.isAfter(today))
         }
         val gymToday = plan[today.dayOfWeek.value % 7] != "Rest"
-        val history = week.filter { it.workout != "Rest" && LocalDate.parse(it.date).isBefore(today) }
-            .map { DayEvent(it.date, it.workout, "done") }
+        // Earlier gym days this week were done; today is done or pending, as the server reports it.
+        val history = week.filter { it.workout != "Rest" && !LocalDate.parse(it.date).isAfter(today) }
+            .map { DayEvent(it.date, it.workout, if (it.date == today.toString() && !done) "pending" else "done") }
         val goals = listOf(
             GoalProgress("section", "Push", 2.0, if (done) 2 else 1, done),
             GoalProgress("section", "Pull", 2.0, 2, true),
