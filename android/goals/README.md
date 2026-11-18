@@ -46,11 +46,38 @@ goals
      when something changes.
    - The app also has a schedule editor and an allowlist picker (changes apply the next day).
    - The last status is cached for offline use. The app checks the status when a blocked app
-     opens, and WorkManager refreshes it infrequently in the background.
+     opens, and refreshes it infrequently in the background (see Memory: no WorkManager).
    - A cached status counts only for the day it is from (in the sheet's time zone) and only while
      the device clock isn't behind it. Otherwise the app gates until a check succeeds, so going
      offline or winding the clock back unlocks nothing.
    - The UI is e-ink first: black and white, large type, no animation, redraws only on change.
+
+## Memory
+The tablet has little RAM. Measured with `adb shell dumpsys meminfo` on an Android 13 emulator
+(x86_64, software rendering), in KB. PSS counts shared pages proportionally; private (USS) is
+memory only this app uses, which is roughly what it adds.
+
+| State | PSS | Private | Notes |
+|---|---|---|---|
+| Release, app open | 24,000 | 17,700 | 12,300 native: rendering caches and fonts |
+| Release, in background | 23,300 | 17,900 | kept until Android asks for memory back |
+| Release, background after a `COMPLETE` trim | 19,000 | 13,600 | native drops to 8,200; cached, killable |
+| Debug, app open | 55,200 | 47,000 | 20,500 code (no R8); never install debug |
+| UI-less foreground service in its own process | 7,300 | 4,500 | probe; `oom_adj` 200 so it stays alive |
+| For scale: system app processes without UI | 6,400–9,600 | | e.g. providers.calendar, keychain |
+
+Rules that keep it there (step 3 follows them):
+- Install the release build (R8), not debug.
+- The always-on watcher is a foreground service in its own process (`android:process=":watch"`)
+  that never touches Compose or the UI classes: about 7 MB, which is the floor for any
+  Android process. In the UI process it would hold the UI's 19–24 MB all day.
+- The UI process (home screen, gate) exists only while shown. Once it's backgrounded, Android
+  can trim it and kill it; nothing keeps it alive.
+- No WorkManager: its startup initializer runs in every process, including `:watch`, and opens
+  a database. The watcher schedules its own infrequent checks (`shouldFetch` in `core`).
+- On the tablet, GPU buffers show up under Graphics, which the emulator's software renderer
+  reports as 0. Check with `adb shell dumpsys meminfo goals.app` and `goals.app:watch` on the
+  device.
 
 ## Build order
 1. Apps Script and tests (done).
