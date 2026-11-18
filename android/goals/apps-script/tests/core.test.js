@@ -288,3 +288,46 @@ test('computeStatus: includes this week for the home screen', () => {
   assert.deepEqual(st.week.map((d) => d.workout), ['Rest', 'Push', 'Push', 'Rest', 'Push', 'Push', 'Rest']);
   assert.deepEqual(st.week.map((d) => d.locked), [true, true, true, false, false, false, false]);
 });
+
+test('parseSettings: reads dated properties and ignores the rest', () => {
+  const s = C.parseSettings({
+    TOKEN: 'x',
+    'WEEK_2026-11-01': JSON.stringify(['Rest', 'Push', 'Pull', 'Rest', 'Push', 'Pull', 'Rest']),
+    'WEEK_2026-11-03': JSON.stringify(Array(7).fill('Push')),  // not a Sunday
+    'DEFAULT_2026-11-08': JSON.stringify(['Rest', 'Upper', 'Push', 'Rest', 'Upper', 'Pull', 'Rest']),
+    'GOALS_2026-11-02': JSON.stringify([{ name: 'Push', rules: [{ type: 'section', name: 'Push', min: 3 }] }]),
+    'ALLOWLIST_2026-11-02': JSON.stringify(['com.example.notes']),
+    'ALLOWLIST_2026-11-05': '{not json',
+    'GOALS_2026-13-01': '[]',                                     // not a date
+  });
+  assert.equal(C.workoutFor(s.plan, '2026-11-02'), 'Push');
+  assert.equal(C.workoutFor(s.plan, '2026-11-09'), 'Upper');
+  assert.deepEqual(s.allowlist, [{ from: '2026-11-02', packages: ['com.example.notes'] }]);
+  assert.deepEqual(s.goals.map((e) => e.from), ['2026-11-02']);
+  assert.equal(s.goals[0].goals.push.rules[0].min, 3);
+});
+
+test('goalsFor: each day uses the goals in effect; the first entry covers earlier days', () => {
+  const entries = C.parseGoalEntries([
+    { from: '2026-11-10', workouts: [{ name: 'Push', rules: [{ type: 'section', name: 'Push', min: 3 }] }] },
+    { from: '2026-11-01', workouts: [{ name: 'Push', rules: [{ type: 'section', name: 'Push', min: 2 }] }] },
+  ]);
+  assert.equal(C.goalsFor(entries, '2026-10-01').current.push.rules[0].min, 2);
+  assert.equal(C.goalsFor(entries, '2026-11-09').current.push.rules[0].min, 2);
+  assert.equal(C.goalsFor(entries, '2026-11-09').pending.from, '2026-11-10');
+  assert.equal(C.goalsFor(entries, '2026-11-10').current.push.rules[0].min, 3);
+  assert.deepEqual(C.goalsFor([], '2026-11-10'), { current: {}, pending: null });
+  // Push x2 counts on 11/09 but not on 11/10.
+  const s = C.parseSchedule(week('2026-11-08', ['Rest', 'Push', 'Push', 'Push', 'Push', 'Rest', 'Rest']));
+  const st = C.computeStatus(s, entries, pushDone(['2026-11-09', '2026-11-10']), '2026-11-11');
+  assert.deepEqual(st.history.map((h) => h.event), ['done', 'missed', 'pending']);
+});
+
+test('validateSave: a locked day may keep a workout that was removed since', () => {
+  const s = C.parseSchedule(week(SUN, ['Rest', 'Skate', 'Push', 'Rest', 'Push', 'Pull', 'Rest']));
+  const noSkate = C.parseGoals([['Push', 'Section', 'Push', 2], ['Pull', 'Section', 'Pull', 2]]);
+  const r = C.validateSave(s, noSkate, SUN, ['Rest', 'Skate', 'Push', 'Push', 'Push', 'Pull', 'Rest'], '2026-11-02');
+  assert.equal(r.ok, true, r.errors.join());
+  const later = C.validateSave(s, noSkate, SUN, ['Rest', 'Skate', 'Push', 'Skate', 'Push', 'Pull', 'Rest'], '2026-11-02');
+  assert.match(later.errors.join(), /2026-11-04: unknown workout "Skate"/);
+});

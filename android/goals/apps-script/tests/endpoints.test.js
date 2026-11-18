@@ -1,10 +1,10 @@
 // Runs Code.js + Core.js against the fake runtime in gas.js: endpoints, sheet
-// reads and writes, token checks. The Exercise tab here is made up but laid out
+// reads, settings in script properties, token checks. The Exercise tab here is made up but laid out
 // like the real one (dates in row 2 from column D, newest first, a spacer column,
 // section labels in column B carried down, unit suffixes on exercise names).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadScript, dateCell } = require('./gas.js');
+const { loadScript, dateCell, SHEET_ID_FOR_TESTS } = require('./gas.js');
 
 const TOKEN = 't0k';
 const TZ = 'America/New_York';
@@ -31,21 +31,43 @@ function exerciseTab() {
   ];
 }
 
+const GOALS = [
+  { name: 'Upper', rules: [{ type: 'section', name: 'Push', min: 2 }, { type: 'section', name: 'Pull', min: 2 },
+    { type: 'section', name: 'Core', min: 1 }] },
+  { name: 'Lower', rules: [{ type: 'section', name: 'Legs', min: 3 }, { type: 'section', name: 'Core', min: 1 }] },
+  { name: 'Skate', rules: [{ type: 'exercise', name: 'Figure skating', min: 1 }] },
+];
+
+// Goals saved long ago, so setup() doesn't seed its own (they'd be dated by the real clock).
 function setup(props = {}) {
   const s = loadScript({
     sheets: { Exercise: exerciseTab() },
     timeZone: TZ,
-    props: { TOKEN, ALLOW_FAKE_TODAY: 'true', ...props },
+    props: { SHEET_ID: SHEET_ID_FOR_TESTS, TOKEN, ALLOW_FAKE_TODAY: 'true', 'GOALS_2026-01-01': JSON.stringify(GOALS), ...props },
   });
-  s.ctx.setup(); // creates the Gate tabs with their example goals
+  s.ctx.setup();
   return s;
 }
 
-test('setup creates the gate tabs and keeps an existing token', () => {
-  const s = setup();
-  for (const t of ['Gate Goals', 'Gate Schedule', 'Gate Default', 'Gate Allowlist']) assert.ok(s.ss.sheets[t], t);
+const settingKeys = (s) => Object.keys(s.props).filter((k) => /_\d{4}-\d{2}-\d{2}$/.test(k)).sort();
+
+test('setup keeps an existing token, seeds goals once and adds no tabs', () => {
+  const s = loadScript({ sheets: { Exercise: exerciseTab() }, timeZone: TZ, props: { SHEET_ID: SHEET_ID_FOR_TESTS, TOKEN } });
+  s.ctx.setup();
+  s.ctx.setup();
   assert.equal(s.props.TOKEN, TOKEN);
-  assert.deepEqual(s.ss.sheets['Gate Goals'].data[1], ['Upper', 'Section', 'Push', 2]);
+  const goals = settingKeys(s);
+  assert.equal(goals.length, 1);
+  assert.match(goals[0], /^GOALS_/);
+  assert.deepEqual(JSON.parse(s.props[goals[0]]).map((w) => w.name), ['Upper', 'Lower', 'Skate']);
+  assert.deepEqual(Object.keys(s.ss.sheets), ['Exercise']);
+});
+
+test('setup needs SHEET_ID and an Exercise tab', () => {
+  const none = loadScript({ sheets: { Exercise: exerciseTab() }, props: {} });
+  assert.throws(() => none.ctx.setup(), /SHEET_ID/);
+  const wrong = loadScript({ sheets: { Log: [] }, props: { SHEET_ID: SHEET_ID_FOR_TESTS } });
+  assert.throws(() => wrong.ctx.setup(), /no Exercise tab/);
 });
 
 test('a wrong or missing token is refused', () => {
@@ -62,6 +84,7 @@ test('status reads the Exercise tab: sections, exercise goals, time zone', () =>
     { action: 'saveDefault', days: ['Skate', 'Lower', 'Upper', 'Rest', 'Upper', 'Upper', 'Rest'] });
   assert.equal(saved.ok, true, JSON.stringify(saved));
   assert.equal(saved.effectiveFrom, '2026-11-15');
+  assert.deepEqual(JSON.parse(s.props['DEFAULT_2026-11-15']), ['Skate', 'Lower', 'Upper', 'Rest', 'Upper', 'Upper', 'Rest']);
 
   const st = s.get({ token: TOKEN, today: '2026-11-17' });
   assert.equal(st.timeZone, TZ);
@@ -84,16 +107,16 @@ test('a day with too little logged stays blocked and shows progress', () => {
   assert.deepEqual(st.goalsProgress.map((g) => g.logged), [1, 1, 0]);
 });
 
-test('saveSchedule writes the week; locked days and short weeks are refused', () => {
+test('saveSchedule stores the week; locked days and short weeks are refused', () => {
   const s = setup();
   const week = ['Rest', 'Upper', 'Lower', 'Upper', 'Rest', 'Skate', 'Rest'];
   const ok = s.post({ token: TOKEN, today: '2026-11-21' }, { action: 'saveSchedule', weekStart: '2026-11-22', days: week });
   assert.equal(ok.ok, true, JSON.stringify(ok));
-  const rows = s.ss.sheets['Gate Schedule'].data.slice(1);
-  assert.deepEqual(rows.map((r) => r[1]), week);
-  // Saving the same week again replaces its rows instead of appending.
+  assert.deepEqual(JSON.parse(s.props['WEEK_2026-11-22']), week);
+  // Saving the same week again replaces it.
+  const keys = settingKeys(s);
   s.post({ token: TOKEN, today: '2026-11-21' }, { action: 'saveSchedule', weekStart: '2026-11-22', days: week });
-  assert.equal(s.ss.sheets['Gate Schedule'].data.slice(1).filter((r) => r.length).length, 7);
+  assert.deepEqual(settingKeys(s), keys);
 
   const locked = s.post({ token: TOKEN, today: '2026-11-23' },
     { action: 'saveSchedule', weekStart: '2026-11-22', days: ['Upper', 'Upper', 'Lower', 'Upper', 'Rest', 'Skate', 'Rest'] });
@@ -105,16 +128,20 @@ test('saveSchedule writes the week; locked days and short weeks are refused', ()
   assert.match(short.errors.join(), /at least 4 gym days, got 3/);
 });
 
-test('schedule action returns this week and next with the default', () => {
+test('schedule action returns both weeks, the default, goals and allowlist', () => {
   const s = setup();
   s.post({ token: TOKEN, today: '2026-11-14' },
     { action: 'saveDefault', days: ['Rest', 'Upper', 'Lower', 'Upper', 'Rest', 'Skate', 'Rest'] });
+  s.post({ token: TOKEN, today: '2026-11-14' }, { action: 'saveAllowlist', packages: ['com.example.notes'] });
   const v = s.get({ token: TOKEN, today: '2026-11-17', action: 'schedule' });
   assert.deepEqual(v.workouts, ['Upper', 'Lower', 'Skate']);
   assert.equal(v.weeks.length, 2);
   assert.equal(v.weeks[0].weekStart, '2026-11-15');
   assert.deepEqual(v.weeks[0].days.map((d) => d.locked), [true, true, true, false, false, false, false]);
   assert.equal(v.default.current.from, '2026-11-15');
+  assert.deepEqual(v.goals.current, GOALS);
+  assert.equal(v.goals.pending, null);
+  assert.deepEqual(v.allowlist.current, ['com.example.notes']);
 });
 
 test('saveAllowlist takes effect tomorrow', () => {
@@ -123,8 +150,61 @@ test('saveAllowlist takes effect tomorrow', () => {
   assert.equal(r.ok, false);
   const ok = s.post({ token: TOKEN, today: '2026-11-17' }, { action: 'saveAllowlist', packages: ['com.example.notes'] });
   assert.equal(ok.effectiveFrom, '2026-11-18');
+  assert.deepEqual(JSON.parse(s.props['ALLOWLIST_2026-11-18']), ['com.example.notes']);
   assert.deepEqual(s.get({ token: TOKEN, today: '2026-11-17' }).allowlist, []);
   assert.deepEqual(s.get({ token: TOKEN, today: '2026-11-18' }).allowlist, ['com.example.notes']);
+});
+
+test('saveGoals takes effect tomorrow and leaves earlier days judged by the old goals', () => {
+  const s = setup();
+  s.post({ token: TOKEN, today: '2026-11-14' },
+    { action: 'saveDefault', days: ['Skate', 'Lower', 'Upper', 'Rest', 'Upper', 'Upper', 'Rest'] });
+  // On Tuesday 11/17 (done: Push 2, Pull 2, Core 1), raise Upper's Push to 3.
+  const harder = GOALS.map((w) => (w.name !== 'Upper' ? w : { ...w, rules: [{ type: 'section', name: 'Push', min: 3 }, ...w.rules.slice(1)] }));
+  const r = s.post({ token: TOKEN, today: '2026-11-17' }, { action: 'saveGoals', workouts: harder });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.effectiveFrom, '2026-11-18');
+  assert.deepEqual(r.workouts, harder);
+  assert.equal(s.get({ token: TOKEN, today: '2026-11-17' }).blocked, false);
+  const pending = s.get({ token: TOKEN, today: '2026-11-17', action: 'schedule' }).goals.pending;
+  assert.equal(pending.from, '2026-11-18');
+  // Thursday: the history keeps Tuesday done; Thursday itself needs Push 3.
+  const thu = s.get({ token: TOKEN, today: '2026-11-19' });
+  assert.deepEqual(thu.history.map((h) => h.event), ['done', 'done', 'done', 'pending']);
+  assert.equal(thu.goalsProgress[0].min, 3);
+});
+
+test('saveGoals refuses bad goals and removing a planned workout', () => {
+  const s = setup();
+  s.post({ token: TOKEN, today: '2026-11-14' },
+    { action: 'saveDefault', days: ['Skate', 'Lower', 'Upper', 'Rest', 'Upper', 'Upper', 'Rest'] });
+  const noSkate = s.post({ token: TOKEN, today: '2026-11-17' }, { action: 'saveGoals', workouts: GOALS.slice(0, 2) });
+  assert.equal(noSkate.ok, false);
+  assert.match(noSkate.errors.join(), /"Skate" is still planned on 2026-11-22/);
+  const bad = s.post({ token: TOKEN, today: '2026-11-17' }, { action: 'saveGoals', workouts: [...GOALS,
+    { name: 'Rest', rules: [{ type: 'section', name: 'Core', min: 1 }] },
+    { name: 'upper', rules: [{ type: 'section', name: 'Core', min: 1 }] },
+    { name: 'Yoga', rules: [{ type: 'category', name: 'Stretch', min: 1 }] },
+    { name: 'Run', rules: [{ type: 'section', name: 'Cardio', min: 0.5 }] },
+    { name: 'Swim', rules: [] }] });
+  assert.deepEqual(bad.errors, [
+    '"Rest" is reserved for rest days',
+    '"upper" is listed twice',
+    'Yoga: unknown goal type "category"',
+    'Run: Cardio needs a whole number of exercises, 1 or more',
+    'Swim: needs at least one goal',
+  ]);
+  assert.deepEqual(settingKeys(s), ['DEFAULT_2026-11-15', 'GOALS_2026-01-01']);
+});
+
+test('saves never touch the spreadsheet', () => {
+  const s = setup();
+  const before = JSON.stringify(s.ss.sheets);
+  s.post({ token: TOKEN, today: '2026-11-14' }, { action: 'saveDefault', days: ['Skate', 'Lower', 'Upper', 'Rest', 'Upper', 'Upper', 'Rest'] });
+  s.post({ token: TOKEN, today: '2026-11-21' }, { action: 'saveSchedule', weekStart: '2026-11-22', days: ['Rest', 'Upper', 'Lower', 'Upper', 'Rest', 'Skate', 'Rest'] });
+  s.post({ token: TOKEN, today: '2026-11-21' }, { action: 'saveGoals', workouts: GOALS });
+  s.post({ token: TOKEN, today: '2026-11-21' }, { action: 'saveAllowlist', packages: ['com.example.notes'] });
+  assert.equal(JSON.stringify(s.ss.sheets), before);
 });
 
 test('?today is ignored unless ALLOW_FAKE_TODAY is set', () => {

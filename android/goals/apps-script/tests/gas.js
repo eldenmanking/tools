@@ -1,7 +1,8 @@
 // A minimal in-memory Apps Script runtime: enough of SpreadsheetApp, Utilities,
 // PropertiesService, ContentService, LockService and Logger to run Code.js and
 // Core.js unchanged in Node. Sheets are 2D arrays; dates are JS Date objects, as
-// getValues() returns them.
+// getValues() returns them. The spreadsheet is read-only: it has no write
+// methods, so a write from Code.js fails the test.
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -26,19 +27,6 @@ class Range {
   getValue() {
     return this.getValues()[0][0];
   }
-  setValues(values) {
-    if (values.length !== this.rows || values.some((r) => r.length !== this.cols)) {
-      throw new Error(`setValues: data is ${values.length}x${values[0] && values[0].length}, range is ${this.rows}x${this.cols}`);
-    }
-    values.forEach((row, r) => {
-      const dst = this.sheet.data[this.row - 1 + r] || (this.sheet.data[this.row - 1 + r] = []);
-      row.forEach((v, c) => { dst[this.col - 1 + c] = v; });
-    });
-    return this;
-  }
-  setNumberFormat() {
-    return this;
-  }
 }
 
 class Sheet {
@@ -60,32 +48,36 @@ class Sheet {
     return new Range(this, 1, 1, Math.max(this.getLastRow(), 1), Math.max(this.getLastColumn(), 1));
   }
   getRange(a, b, c, d) {
-    if (typeof a === 'string') return new Range(this, 1, 1, 1, 1); // only used for 'A:A' formats
     return new Range(this, a, b, c || 1, d || 1);
   }
-  deleteRow(r) {
-    this.data.splice(r - 1, 1);
-  }
-  setFrozenRows() {}
 }
+
+// Apps Script's limit on one property value.
+const MAX_PROPERTY_BYTES = 9 * 1024;
+const SHEET_ID_FOR_TESTS = 'sheet-id';
 
 /**
  * Load Code.js and Core.js into a fresh context.
- *   sheets: { name: 2D array }; timeZone: the spreadsheet's IANA zone; props: script properties
+ *   sheets: { name: 2D array }; timeZone: the spreadsheet's IANA zone; props: script properties.
+ *   The spreadsheet opens by the id SHEET_ID_FOR_TESTS.
  * Returns { ctx, ss, props, get(params), post(params, body) } where get/post return parsed JSON.
  */
 function loadScript({ sheets = {}, timeZone = 'America/New_York', props = {} } = {}) {
   const book = {};
   const ss = {
     getSheetByName: (n) => book[n] || null,
-    insertSheet: (n) => (book[n] = new Sheet(n)),
     getSpreadsheetTimeZone: () => timeZone,
     sheets: book,
   };
   const store = { ...props };
   const ctx = {
     console,
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    SpreadsheetApp: {
+      openById: (id) => {
+        if (id !== SHEET_ID_FOR_TESTS) throw new Error('no spreadsheet with id ' + id);
+        return ss;
+      },
+    },
     Utilities: {
       formatDate(date, tz, fmt) {
         if (fmt !== 'yyyy-MM-dd') throw new Error('unsupported format ' + fmt);
@@ -96,7 +88,11 @@ function loadScript({ sheets = {}, timeZone = 'America/New_York', props = {} } =
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (k) => (k in store ? store[k] : null),
-        setProperty: (k, v) => { store[k] = String(v); },
+        getProperties: () => ({ ...store }),
+        setProperty: (k, v) => {
+          if (Buffer.byteLength(String(v)) > MAX_PROPERTY_BYTES) throw new Error('property ' + k + ' is too large');
+          store[k] = String(v);
+        },
       }),
     },
     ContentService: {
@@ -133,4 +129,4 @@ function dateCell(iso, tz = 'America/New_York') {
   return new Date(guess.getTime() - hour * 3600000);
 }
 
-module.exports = { loadScript, dateCell, Sheet };
+module.exports = { loadScript, dateCell, Sheet, SHEET_ID_FOR_TESTS };

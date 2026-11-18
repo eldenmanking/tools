@@ -67,7 +67,7 @@ fun GateScreen(
             )
         }
         if (unknownReason == null && status?.unknownWorkout == true) {
-            InkText("\"${status.workout}\" isn't in the Gate Goals tab. Fix the sheet, then check again.")
+            InkText("\"${status.workout}\" isn't one of your workouts any more. Fix the goals, then check again.")
         }
 
         if (status != null) {

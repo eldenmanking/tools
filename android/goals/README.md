@@ -8,10 +8,11 @@ keeps its own.
 ```
 goals
 ├── README.md              --- this file
-├── apps-script            --- backend bound to the gym log sheet (source of truth); see its README
-│   ├── Code.js            --- web app endpoints (status, schedule, save*), sheet I/O
+├── apps-script            --- backend that reads the gym log sheet and keeps the settings; see its README
+│   ├── appsscript.json    --- manifest: read-only spreadsheet access, web app settings
+│   ├── Code.js            --- web app endpoints (status, schedule, save*), sheet reads, settings storage
 │   ├── Core.js            --- pure rules: schedule and default week, goals, streak, tokens, allowlist
-│   ├── README.md          --- sheet layout, rules, deploy steps
+│   ├── README.md          --- what it reads and stores, rules, deploy steps
 │   └── tests              --- Node tests: rules with fake dates, endpoints on a fake Apps Script runtime
 ├── app                    --- the Android app (Compose foundation, no Material)
 │   ├── src/main/kotlin/goals/app
@@ -30,15 +31,16 @@ goals
 ```
 
 ## Architecture
-1. **Apps Script** (`apps-script/`). It reads the `Exercise` log, plus the `Gate Goals`,
-   `Gate Schedule` and `Gate Allowlist` tabs, and uses the server's date for today.
+1. **Apps Script** (`apps-script/`). It only reads the sheet: the `Exercise` log. The schedule,
+   default week, goals and allowlist are set in the app and kept in the script's properties. It
+   uses the server's date for today.
    - Each workout (e.g. Upper, Lower, Skate) needs a minimum number of exercises from chosen
      sections (Push, Pull, Core, ...), a specific exercise, or both.
    - It returns `{todayScheduled, workout, done, blocked, streak, longest, tokens, goalsProgress,
      allowlist, week, history, timeZone}`.
    - It saves weekly schedules, rejecting changes to locked days and weeks with fewer than 4 gym
      days, and a default week that fills unsaved weeks from the next day on.
-   - It saves allowlists, which take effect the next day.
+   - It saves goals and allowlists, which take effect the next day.
    - Access needs a secret token in the URL, so the app needs no Google sign-in.
 2. **Android app** (Kotlin and Jetpack Compose; `core` holds the logic, `app` the UI).
    - A foreground service watches the foreground app with UsageStatsManager. When the status says
@@ -47,7 +49,7 @@ goals
    - The gate shows the streak, tokens, today's goals and progress, and a "Check again" button.
    - A persistent notification shows the streak, tokens and today's status. It is redrawn only
      when something changes.
-   - The app also has a schedule editor and an allowlist picker (changes apply the next day).
+   - The app also has a schedule editor, a goals editor and an allowlist picker.
    - The last status is cached for offline use. The app checks the status when a blocked app
      opens, and refreshes it infrequently in the background (see Memory: no WorkManager).
    - A cached status counts only for the day it is from (in the sheet's time zone) and only while
@@ -111,7 +113,7 @@ What the tablet's own framework does (from a decompiled `services.jar` of firmwa
    notifications, battery). Done: `WatchService` in `:watch`, `SetupScreen`, persistent
    notification.
 4. Wire up the endpoint and add the persistent notification.
-5. Schedule editor.
+5. Schedule, default week, goals and allowlist editors.
 6. On the device: check that the background service survives (exempt the app from battery
    optimization), then polish for e-ink.
 

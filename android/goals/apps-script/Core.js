@@ -1,5 +1,5 @@
 // Pure logic for the gym gate: no SpreadsheetApp, no clock. Every function takes
-// "today" and sheet data as arguments, so the same file runs in Apps Script and
+// "today", the Exercise tab and the stored settings as arguments, so the same file runs in Apps Script and
 // in Node (tests/core.test.js) with fake dates.
 //
 // Dates are ISO strings ("2026-11-15") in the spreadsheet's time zone.
@@ -81,7 +81,7 @@ function parseExercise(headerIsos, dataRows) {
   return out;
 }
 
-// Gate Goals tab rows (after the header): [workout, type, name, min], where
+// Goal rows: [workout, type, name, min] (workoutRows_ makes them), where
 // type is "Section" (log at least <min> exercises from that Exercise tab
 // section) or "Exercise" (log that exercise; <min> is ignored). A workout is
 // done when all its rows are met.
@@ -109,7 +109,7 @@ function parseGoals(rows) {
 
 // ---- allowlist -------------------------------------------------------------
 
-// Gate Allowlist tab rows (after the header): [effectiveFromIso, packages],
+// Allowlist rows: [effectiveFromIso, packages],
 // packages comma-separated. Returns entries sorted by date.
 function parseAllowlist(rows) {
   var byDate = {};
@@ -153,7 +153,7 @@ function validateAllowlist(packages, today) {
   return { ok: errors.length === 0, errors: errors, row: [addDays(today, 1), list.join(',')] };
 }
 
-// Gate Schedule tab rows (after the header): [dateIso, workout or "Rest"].
+// Schedule rows: [dateIso, workout or "Rest"].
 // Returns { iso: workout }. Later rows win.
 function parseSchedule(rows) {
   var out = {};
@@ -197,8 +197,7 @@ function planStart_(plan) {
   return first;
 }
 
-// Gate Default tab rows (after the header): [effectiveFromIso, Sun, Mon, ...,
-// Sat]. Returns entries sorted by date; a later row for the same date wins.
+// Default week rows: [effectiveFromIso, Sun, Mon, ..., Sat]. Returns entries sorted by date; a later row for the same date wins.
 function parseDefaults(rows) {
   var byDate = {};
   for (var i = 0; i < rows.length; i++) {
@@ -262,15 +261,16 @@ function weekView(plan, weekStart, today) {
 }
 
 // Shared checks for a week of workouts: at least MIN_GYM_DAYS_PER_WEEK gym
-// days, every gym day a workout in Gate Goals. Returns { errors, names }, the
-// names normalized ("" or rest -> "Rest").
-function checkWeek_(goals, days, label) {
+// days, every gym day a known workout (except days where locked(i) is true:
+// they keep whatever they had). Returns { errors, names }, the names normalized
+// ("" or rest -> "Rest").
+function checkWeek_(goals, days, label, locked) {
   var errors = [], names = [], gym = 0;
   for (var i = 0; i < 7; i++) {
     var w = String(days[i] || '').trim() || REST;
     if (isGymDay(w)) {
       gym++;
-      if (!goals[norm_(w)]) errors.push(label(i) + ': unknown workout "' + w + '"');
+      if (!goals[norm_(w)] && !(locked && locked(i))) errors.push(label(i) + ': unknown workout "' + w + '"');
     } else {
       w = REST;
     }
@@ -298,8 +298,8 @@ function validateDefault(goals, days, today) {
 
 // Check a save of one whole week. A day can change only until midnight the
 // night before it (so today and earlier are locked), the week needs at least
-// MIN_GYM_DAYS_PER_WEEK gym days, and every gym day must name a workout in the
-// Gate Goals tab.
+// MIN_GYM_DAYS_PER_WEEK gym days, and every gym day from tomorrow on must name a
+// workout in <goals> (the goals in effect from tomorrow).
 //   days: 7 workout names, Sunday first ("Rest" or "" for rest)
 // Returns { ok, errors: [string], rows: [[iso, workout]...] } (rows to store).
 function validateSave(plan, goals, weekStart, days, today) {
@@ -309,7 +309,8 @@ function validateSave(plan, goals, weekStart, days, today) {
   if (!days || days.length !== 7) {
     return { ok: false, errors: ['days must list 7 entries, Sunday first'], rows: [] };
   }
-  var c = checkWeek_(goals, days, function (i) { return addDays(weekStart, i); });
+  var c = checkWeek_(goals, days, function (i) { return addDays(weekStart, i); },
+    function (i) { return addDays(weekStart, i) <= today; });
   var errors = c.errors, rows = [];
   for (var i = 0; i < 7; i++) {
     var iso = addDays(weekStart, i);
@@ -320,6 +321,146 @@ function validateSave(plan, goals, weekStart, days, today) {
     rows.push([iso, c.names[i]]);
   }
   return { ok: errors.length === 0, errors: errors, rows: rows };
+}
+
+// ---- goals ---------------------------------------------------------------
+
+// Goal rows for parseGoals from saved workouts:
+//   [{ name, rules: [{ type: "section" | "exercise", name, min }] }]
+function workoutRows_(workouts) {
+  var rows = [];
+  (workouts || []).forEach(function (w) {
+    ((w && w.rules) || []).forEach(function (r) { rows.push([w.name, r.type, r.name, r.min]); });
+  });
+  return rows;
+}
+
+// Saved goals: [{ from, workouts }]. Returns [{ from, goals: parseGoals(...) }]
+// sorted by date.
+function parseGoalEntries(entries) {
+  return entries.slice().sort(function (a, b) { return a.from < b.from ? -1 : 1; })
+    .map(function (e) { return { from: e.from, goals: parseGoals(workoutRows_(e.workouts)) }; });
+}
+
+// The goals in effect on <iso> ({} if none are saved) and the next ones saved
+// to take effect later, if any. The first entry also covers earlier dates.
+function goalsFor(entries, iso) {
+  var current = entries.length ? entries[0].goals : {}, pending = null;
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].from <= iso) current = entries[i].goals;
+    else if (!pending) pending = entries[i];
+  }
+  return { current: current, pending: pending };
+}
+
+function goalsOn_(goals, iso) {
+  return Array.isArray(goals) ? goalsFor(goals, iso).current : goals;
+}
+
+// A parseGoals map as the app sees it: [{ name, rules: [{ type, name, min }] }].
+function goalsView(goals) {
+  return Object.keys(goals).map(function (k) {
+    return {
+      name: goals[k].name,
+      rules: goals[k].rules.map(function (r) { return { type: r.type, name: r.name, min: r.min }; })
+    };
+  });
+}
+
+// Check new goals. They take effect tomorrow (server date), so a change never
+// unblocks anything today, and a workout still planned from tomorrow on can't
+// be removed (change the schedule first).
+//   workouts: [{ name, rules: [{ type: "section" | "exercise", name, min }] }]
+// Returns { ok, errors, from, workouts } (workouts cleaned up, to store).
+function validateGoals(plan, workouts, today) {
+  if (!Array.isArray(workouts) || !workouts.length) {
+    return { ok: false, errors: ['workouts must list at least one workout'], from: null, workouts: [] };
+  }
+  var errors = [], out = [], seen = {};
+  workouts.forEach(function (w, i) {
+    var name = String((w && w.name) || '').trim();
+    var label = name || 'workout ' + (i + 1);
+    if (!name) errors.push(label + ': needs a name');
+    else if (!isGymDay(name)) errors.push('"' + name + '" is reserved for rest days');
+    else if (seen[norm_(name)]) errors.push('"' + name + '" is listed twice');
+    seen[norm_(name)] = true;
+    var rules = (w && Array.isArray(w.rules)) ? w.rules : [];
+    if (!rules.length) errors.push(label + ': needs at least one goal');
+    out.push({
+      name: name,
+      rules: rules.map(function (r) {
+        var type = norm_(r && r.type);
+        var rn = String((r && r.name) || '').trim();
+        var min = type === 'exercise' ? 1 : Number(r && r.min);
+        if (type !== 'section' && type !== 'exercise') {
+          errors.push(label + ': unknown goal type "' + (r && r.type) + '"');
+        } else if (!rn) {
+          errors.push(label + ': a goal needs a name');
+        } else if (!(min >= 1 && min === Math.floor(min))) {
+          errors.push(label + ': ' + rn + ' needs a whole number of exercises, 1 or more');
+        }
+        return { type: type, name: rn, min: min };
+      })
+    });
+  });
+  var from = addDays(today, 1);
+  var goals = parseGoals(workoutRows_(out));
+  var p = plan_(plan);
+  // Two weeks from tomorrow cover the default and copied weeks; saved days can
+  // be further out.
+  var dates = [];
+  for (var i = 0; i < 14; i++) dates.push(addDays(from, i));
+  Object.keys(p.days).sort().forEach(function (d) { if (d >= from) dates.push(d); });
+  var reported = {};
+  dates.forEach(function (d) {
+    var w = workoutFor(p, d);
+    if (isGymDay(w) && !goals[norm_(w)] && !reported[norm_(w)]) {
+      reported[norm_(w)] = true;
+      errors.push('"' + w + '" is still planned on ' + d + '; change the schedule first');
+    }
+  });
+  return { ok: errors.length === 0, errors: errors, from: from, workouts: out };
+}
+
+// ---- stored settings -------------------------------------------------------
+
+// The settings are script properties, one per dated entry, each a JSON array:
+//   WEEK_<sunday>        7 workout names, Sunday first (a saved week)
+//   DEFAULT_<from>       7 workout names, Sunday first (the default week)
+//   GOALS_<from>         [{ name, rules }] (see validateGoals)
+//   ALLOWLIST_<from>     package names
+// Other properties and malformed values are ignored.
+var SETTING_KEY_RE_ = /^(WEEK|DEFAULT|GOALS|ALLOWLIST)_(\d{4}-\d{2}-\d{2})$/;
+
+function settingKey(kind, iso) {
+  return kind + '_' + iso;
+}
+
+// Returns { plan: { days, defaults }, goals: parseGoalEntries(...), allowlist: parseAllowlist(...) }.
+function parseSettings(props) {
+  var days = [], defaults = [], goals = [], allow = [];
+  Object.keys(props || {}).forEach(function (k) {
+    var m = SETTING_KEY_RE_.exec(k);
+    if (!m || !isIsoDate(m[2])) return;
+    var v;
+    try { v = JSON.parse(props[k]); } catch (e) { return; }
+    if (!Array.isArray(v)) return;
+    if (m[1] === 'WEEK') {
+      if (dayOfWeek(m[2]) !== 0) return;
+      for (var i = 0; i < 7; i++) days.push([addDays(m[2], i), v[i]]);
+    } else if (m[1] === 'DEFAULT') {
+      defaults.push([m[2]].concat(v));
+    } else if (m[1] === 'GOALS') {
+      goals.push({ from: m[2], workouts: v });
+    } else {
+      allow.push([m[2], v.join(',')]);
+    }
+  });
+  return {
+    plan: { days: parseSchedule(days), defaults: parseDefaults(defaults) },
+    goals: parseGoalEntries(goals),
+    allowlist: parseAllowlist(allow)
+  };
 }
 
 // ---- goals and streak ------------------------------------------------------
@@ -344,6 +485,8 @@ function dayProgress(goals, workout, day) {
 // freeze token (cap MAX_TOKENS). Missed gym day before today: spend a token if
 // there is one, else the streak resets. Rest days change nothing; neither does
 // today while it is still unmet. Logging on a rest day is a bonus.
+//   goals: goal entries (parseGoalEntries), so each day is judged by the goals
+//          in effect that day; a bare parseGoals map applies to every day.
 function computeStatus(schedule, goals, exercise, today, allowlist) {
   var streak = 0, longest = 0, tokens = 0, completed = 0;
   var first = planStart_(plan_(schedule));
@@ -352,7 +495,7 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
     for (var d = first; d <= today; d = addDays(d, 1)) {
       var w = workoutFor(schedule, d);
       if (!isGymDay(w)) continue;
-      var p = dayProgress(goals, w, exercise[d]);
+      var p = dayProgress(goalsOn_(goals, d), w, exercise[d]);
       var event;
       if (p.done) {
         streak++;
@@ -374,7 +517,7 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
   }
   var todayWorkout = workoutFor(schedule, today) || REST;
   var scheduled = isGymDay(todayWorkout);
-  var tp = scheduled ? dayProgress(goals, todayWorkout, exercise[today]) : { done: false, progress: [] };
+  var tp = scheduled ? dayProgress(goalsOn_(goals, today), todayWorkout, exercise[today]) : { done: false, progress: [] };
   return {
     today: today,
     todayScheduled: scheduled,
@@ -402,6 +545,8 @@ if (typeof module !== 'undefined') {
     parseSchedule: parseSchedule, parseAllowlist: parseAllowlist, allowlistFor: allowlistFor,
     parseDefaults: parseDefaults, defaultFor: defaultFor, validateDefault: validateDefault,
     validateAllowlist: validateAllowlist,
+    parseGoalEntries: parseGoalEntries, goalsFor: goalsFor, goalsView: goalsView,
+    validateGoals: validateGoals, parseSettings: parseSettings, settingKey: settingKey,
     isGymDay: isGymDay, workoutFor: workoutFor, weekView: weekView, validateSave: validateSave,
     dayProgress: dayProgress, computeStatus: computeStatus,
     MIN_GYM_DAYS_PER_WEEK: MIN_GYM_DAYS_PER_WEEK, MAX_TOKENS: MAX_TOKENS

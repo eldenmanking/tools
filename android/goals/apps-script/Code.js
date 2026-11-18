@@ -1,62 +1,51 @@
-// Web app for the gym gate. Bound to the gym log spreadsheet; all logic lives
-// in Core.js, this file only reads and writes the sheet.
+// Web app for the gym gate. A standalone script that only reads the gym log
+// spreadsheet: appsscript.json asks for spreadsheets.readonly, so it can't
+// change the sheet. The gate's settings live in script properties (see
+// parseSettings in Core.js); all logic lives in Core.js.
 //
 //   GET  <url>?token=T                    -> status JSON (see computeStatus)
-//   GET  <url>?token=T&action=schedule    -> this week and next, with locks
+//   GET  <url>?token=T&action=schedule    -> this week and next with locks, the
+//                                            default week, goals and allowlist
 //   POST <url>?token=T  body {"action":"saveSchedule","weekStart":"2026-11-22",
 //                             "days":["Rest","Upper","Lower",...]}  (Sunday first)
-//   POST <url>?token=T  body {"action":"saveAllowlist","packages":["com.a.b",...]}
-//                             (takes effect tomorrow)
 //   POST <url>?token=T  body {"action":"saveDefault","days":["Rest","Upper",...]}
 //                             (Sunday first; applies from tomorrow to unsaved weeks)
+//   POST <url>?token=T  body {"action":"saveGoals","workouts":[{"name":"Upper",
+//                             "rules":[{"type":"section","name":"Push","min":2},...]}]}
+//                             (takes effect tomorrow)
+//   POST <url>?token=T  body {"action":"saveAllowlist","packages":["com.a.b",...]}
+//                             (takes effect tomorrow)
+//
+// Script properties set by hand: SHEET_ID (the gym log spreadsheet) and, for
+// testing only, ALLOW_FAKE_TODAY. setup() creates TOKEN.
 //
 // "Today" is always the server's date in the spreadsheet's time zone. Only when
-// the script property ALLOW_FAKE_TODAY is "true" does ?today=yyyy-mm-dd
-// override it (for emulator testing); leave it unset otherwise.
+// ALLOW_FAKE_TODAY is "true" does ?today=yyyy-mm-dd override it (for emulator
+// testing); leave it unset otherwise.
 
 var EXERCISE_TAB = 'Exercise';
-var GOALS_TAB = 'Gate Goals';
-var SCHEDULE_TAB = 'Gate Schedule';
-var ALLOWLIST_TAB = 'Gate Allowlist';
-var DEFAULT_TAB = 'Gate Default';
 
-// Run once from the editor: creates the gate tabs if missing and a secret
-// token, then logs the token (View > Logs).
+// Goals saved by setup() until the app saves its own.
+var SEED_GOALS_ = [
+  { name: 'Upper', rules: [
+    { type: 'section', name: 'Push', min: 2 },
+    { type: 'section', name: 'Pull', min: 2 },
+    { type: 'section', name: 'Core', min: 1 }] },
+  { name: 'Lower', rules: [
+    { type: 'section', name: 'Legs', min: 2 },
+    { type: 'section', name: 'Core', min: 1 }] },
+  { name: 'Skate', rules: [{ type: 'exercise', name: 'Figure skating', min: 1 }] }
+];
+
+// Run once from the editor after setting SHEET_ID: checks the sheet, creates
+// a secret token and the first goals, then logs the token (View > Logs).
 function setup() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss.getSheetByName(GOALS_TAB)) {
-    var g = ss.insertSheet(GOALS_TAB);
-    g.getRange(1, 1, 1, 4).setValues([['Workout', 'Type (Section/Exercise)', 'Name', 'Min exercises']]);
-    // Examples: a Section row names an Exercise tab section (Push, Pull, Legs,
-    // Core, ...); an Exercise row names one exercise without its [unit] suffix.
-    // A workout is done when all its rows are met. Edit to taste.
-    g.getRange(2, 1, 6, 4).setValues([
-      ['Upper', 'Section', 'Push', 2], ['Upper', 'Section', 'Pull', 2], ['Upper', 'Section', 'Core', 1],
-      ['Lower', 'Section', 'Legs', 3], ['Lower', 'Section', 'Core', 1],
-      ['Skate', 'Exercise', 'Figure skating', '']
-    ]);
-    g.setFrozenRows(1);
-  }
-  if (!ss.getSheetByName(SCHEDULE_TAB)) {
-    var s = ss.insertSheet(SCHEDULE_TAB);
-    s.getRange(1, 1, 1, 2).setValues([['Date (yyyy-mm-dd)', 'Workout']]);
-    s.getRange('A:A').setNumberFormat('@'); // keep dates as text, no time zone shifts
-    s.setFrozenRows(1);
-  }
-  if (!ss.getSheetByName(DEFAULT_TAB)) {
-    var d = ss.insertSheet(DEFAULT_TAB);
-    d.getRange(1, 1, 1, 8).setValues([['Effective from (yyyy-mm-dd)', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']]);
-    d.getRange('A:A').setNumberFormat('@');
-    d.setFrozenRows(1);
-  }
-  if (!ss.getSheetByName(ALLOWLIST_TAB)) {
-    var a = ss.insertSheet(ALLOWLIST_TAB);
-    a.getRange(1, 1, 1, 2).setValues([['Effective from (yyyy-mm-dd)', 'Allowed packages (comma-separated)']]);
-    a.getRange('A:A').setNumberFormat('@');
-    a.setFrozenRows(1);
-  }
   var props = PropertiesService.getScriptProperties();
+  if (!book_().getSheetByName(EXERCISE_TAB)) throw new Error('the sheet has no ' + EXERCISE_TAB + ' tab');
   if (!props.getProperty('TOKEN')) props.setProperty('TOKEN', Utilities.getUuid());
+  if (!parseSettings(props.getProperties()).goals.length) {
+    props.setProperty(settingKey('GOALS', todayIso_()), JSON.stringify(SEED_GOALS_));
+  }
   Logger.log('TOKEN=' + props.getProperty('TOKEN'));
 }
 
@@ -68,12 +57,19 @@ function doGet(e) {
     }
     if (action === 'schedule') {
       var ws = weekStartOf(today);
+      var goals = goalsFor(data.goals, today);
       return {
         today: today,
-        workouts: Object.keys(data.goals).map(function (k) { return data.goals[k].name; }),
+        // Workouts a day from tomorrow on can use.
+        workouts: goalsView(goalsFor(data.goals, addDays(today, 1)).current).map(function (w) { return w.name; }),
         minGymDays: MIN_GYM_DAYS_PER_WEEK,
         weeks: [weekView(data.plan, ws, today), weekView(data.plan, addDays(ws, 7), today)],
-        default: defaultFor(data.plan.defaults, today)
+        default: defaultFor(data.plan.defaults, today),
+        goals: {
+          current: goalsView(goals.current),
+          pending: goals.pending && { from: goals.pending.from, workouts: goalsView(goals.pending.goals) }
+        },
+        allowlist: allowlistFor(data.allowlist, today)
       };
     }
     return { error: 'unknown action ' + action };
@@ -85,24 +81,33 @@ function doPost(e) {
   lock.waitLock(10000);
   try {
     return handle_(e, function (data, today) {
+      var props = PropertiesService.getScriptProperties();
       var body = JSON.parse((e.postData && e.postData.contents) || '{}');
+      var tomorrow = addDays(today, 1);
       if (body.action === 'saveSchedule') {
-        var v = validateSave(data.plan, data.goals, body.weekStart, body.days, today);
+        var goals = goalsFor(data.goals, tomorrow).current;
+        var v = validateSave(data.plan, goals, body.weekStart, body.days, today);
         if (!v.ok) return { ok: false, errors: v.errors };
-        writeDatedRows_(SCHEDULE_TAB, v.rows);
-        return { ok: true, week: weekView(readData_().plan, body.weekStart, today) };
+        save_(props, 'WEEK', body.weekStart, v.rows.map(function (r) { return r[1]; }));
+        return { ok: true, week: weekView(settings_().plan, body.weekStart, today) };
       }
       if (body.action === 'saveDefault') {
-        var dv = validateDefault(data.goals, body.days, today);
+        var dv = validateDefault(goalsFor(data.goals, tomorrow).current, body.days, today);
         if (!dv.ok) return { ok: false, errors: dv.errors };
-        writeDatedRows_(DEFAULT_TAB, [dv.row]);
-        return { ok: true, effectiveFrom: dv.row[0], default: defaultFor(readData_().plan.defaults, today) };
+        save_(props, 'DEFAULT', dv.row[0], dv.row.slice(1));
+        return { ok: true, effectiveFrom: dv.row[0], default: defaultFor(settings_().plan.defaults, today) };
+      }
+      if (body.action === 'saveGoals') {
+        var gv = validateGoals(data.plan, body.workouts, today);
+        if (!gv.ok) return { ok: false, errors: gv.errors };
+        save_(props, 'GOALS', gv.from, gv.workouts);
+        return { ok: true, effectiveFrom: gv.from, workouts: goalsView(goalsFor(settings_().goals, gv.from).current) };
       }
       if (body.action === 'saveAllowlist') {
         var a = validateAllowlist(body.packages, today);
         if (!a.ok) return { ok: false, errors: a.errors };
-        writeDatedRows_(ALLOWLIST_TAB, [a.row]);
-        return { ok: true, effectiveFrom: a.row[0], allowlist: allowlistFor(readData_().allowlist, today) };
+        save_(props, 'ALLOWLIST', a.row[0], a.row[1] ? a.row[1].split(',') : []);
+        return { ok: true, effectiveFrom: a.row[0], allowlist: allowlistFor(settings_().allowlist, today) };
       }
       return { error: 'unknown action ' + body.action };
     });
@@ -133,8 +138,20 @@ function handle_(e, fn) {
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
+var book_cache_ = null;
+
+// The gym log spreadsheet, opened read-only by the SHEET_ID script property.
+function book_() {
+  if (!book_cache_) {
+    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+    if (!id) throw new Error('set the SHEET_ID script property first');
+    book_cache_ = SpreadsheetApp.openById(id);
+  }
+  return book_cache_;
+}
+
 function tz_() {
-  return SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  return book_().getSpreadsheetTimeZone();
 }
 
 function todayIso_() {
@@ -147,45 +164,21 @@ function cellIso_(v, tz) {
   return isIsoDate(s) ? s : null;
 }
 
+function settings_() {
+  return parseSettings(PropertiesService.getScriptProperties().getProperties());
+}
+
+// Store one dated setting, replacing any saved for the same date.
+function save_(props, kind, iso, value) {
+  props.setProperty(settingKey(kind, iso), JSON.stringify(value));
+}
+
 function readData_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = tz_();
-  var ex = ss.getSheetByName(EXERCISE_TAB).getDataRange().getValues();
+  var tab = book_().getSheetByName(EXERCISE_TAB);
+  if (!tab) throw new Error('the sheet has no ' + EXERCISE_TAB + ' tab');
+  var ex = tab.getDataRange().getValues();
   var header = (ex[1] || []).map(function (v) { return cellIso_(v, tz); });
-  return {
-    exercise: parseExercise(header, ex.slice(2)),
-    goals: parseGoals(rowsAfterHeader_(ss.getSheetByName(GOALS_TAB))),
-    plan: {
-      days: parseSchedule(datedRows_(ss.getSheetByName(SCHEDULE_TAB), tz)),
-      defaults: parseDefaults(datedRows_(ss.getSheetByName(DEFAULT_TAB), tz))
-    },
-    allowlist: parseAllowlist(datedRows_(ss.getSheetByName(ALLOWLIST_TAB), tz))
-  };
-}
-
-// Rows after the header with column A as an ISO date ('' if it isn't one).
-function datedRows_(sheet, tz) {
-  return rowsAfterHeader_(sheet).map(function (r) { return [cellIso_(r[0], tz) || ''].concat(r.slice(1)); });
-}
-
-function rowsAfterHeader_(sheet) {
-  if (!sheet) throw new Error('missing tab; run setup() first');
-  var n = sheet.getLastRow();
-  return n < 2 ? [] : sheet.getRange(2, 1, n - 1, sheet.getLastColumn()).getValues();
-}
-
-// Replace the rows of tab <name> whose column A holds one of these dates.
-function writeDatedRows_(name, rows) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-  var dates = {};
-  rows.forEach(function (r) { dates[r[0]] = true; });
-  var tz = tz_();
-  var last = sheet.getLastRow();
-  var col = last < 2 ? [] : sheet.getRange(2, 1, last - 1, 1).getValues();
-  for (var i = col.length - 1; i >= 0; i--) {
-    if (dates[cellIso_(col[i][0], tz)]) sheet.deleteRow(i + 2);
-  }
-  var start = sheet.getLastRow() + 1;
-  sheet.getRange(start, 1, rows.length, 1).setNumberFormat('@');
-  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
+  var s = settings_();
+  return { exercise: parseExercise(header, ex.slice(2)), plan: s.plan, goals: s.goals, allowlist: s.allowlist };
 }
