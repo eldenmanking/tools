@@ -20,6 +20,18 @@ android {
         versionName = "0.1"
     }
 
+    buildTypes {
+        release {
+            // R8 strips unused code (most of Compose) and resources: a smaller APK and less code
+            // mapped into memory, which matters on the e-ink tablet.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            // Sideloaded personal app: sign release builds with the local debug key.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
