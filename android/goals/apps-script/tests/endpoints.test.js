@@ -10,7 +10,7 @@ const TOKEN = 't0k';
 const TZ = 'America/New_York';
 
 function exerciseTab() {
-  const d = (iso) => dateCell(iso, TZ);
+  const d = (iso) => dateCell(iso);
   return [
     ['Exercise Record'],
     ['', '', 'Date', d('2026-11-17'), d('2026-11-16'), '', d('2026-11-15')],

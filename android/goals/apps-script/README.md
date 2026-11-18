@@ -2,10 +2,12 @@
 
 A standalone web app that decides whether today's gym goals are met. It only reads the gym log
 spreadsheet: `appsscript.json` asks for read-only spreadsheet access, so it can't change the sheet.
+It reads through the Sheets API (the "Sheets" advanced service, enabled by the manifest), because
+`SpreadsheetApp.openById` needs full edit access even to read.
 
 - `Core.js`: pure logic (dates, schedule, goals, streak, tokens, stored settings). Tested in Node.
 - `Code.js`: web app endpoints, sheet reads and settings storage.
-- `appsscript.json`: the manifest (read-only scope, web app settings).
+- `appsscript.json`: the manifest (read-only scope, the Sheets service, web app settings).
 
 ## What it reads
 `Exercise`: row 2 holds dates from column D; column B labels a section (Push, Pull, Legs, Core,
@@ -56,6 +58,9 @@ Each day is judged by the goals in effect that day, so changing goals never rewr
    manifest. Copy the `/exec` URL.
 6. Test it: open `<url>?token=<TOKEN>` in a browser; you should get JSON.
 
+To update the code later, paste the new files, then Deploy > Manage deployments > edit (pencil) >
+Version: New version > Deploy. That keeps the same `/exec` URL.
+
 The URL and token together grant access, so keep them out of public places. To rotate the token,
 delete `TOKEN` under Script properties and run `setup` again.
 
@@ -67,7 +72,7 @@ For emulator testing only, set the script property `ALLOW_FAKE_TODAY` to `true`.
 
 - `core.test.js`: the rules in `Core.js`, with fake dates.
 - `endpoints.test.js`: `Code.js` and `Core.js` run unchanged on `gas.js`, a small in-memory stand-in
-  for the Apps Script services (SpreadsheetApp, Utilities, PropertiesService, ContentService,
-  LockService). Its spreadsheet has no write methods, so any write fails a test. It covers
+  for the Apps Script services (the Sheets service, Utilities, PropertiesService, ContentService,
+  LockService). Its Sheets service only reads, so any write fails a test. It covers
   `setup`, the token check, every endpoint, the sheet reads and the stored settings, using a
   made-up Exercise tab laid out like the real one.

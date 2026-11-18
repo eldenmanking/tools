@@ -1,4 +1,4 @@
-// Pure logic for the gym gate: no SpreadsheetApp, no clock. Every function takes
+// Pure logic for the gym gate: no Apps Script services, no clock. Every function takes
 // "today", the Exercise tab and the stored settings as arguments, so the same file runs in Apps Script and
 // in Node (tests/core.test.js) with fake dates.
 //
@@ -32,6 +32,12 @@ function dayOfWeek(iso) {
 
 function weekStartOf(iso) {
   return addDays(iso, -dayOfWeek(iso));
+}
+
+// A spreadsheet serial date (days since 1899-12-30; a fraction is the time of
+// day) -> its ISO date. Serial dates carry no time zone.
+function serialToIso(n) {
+  return addDays('1899-12-30', Math.floor(n));
 }
 
 function isIsoDate(s) {
@@ -540,7 +546,7 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    addDays: addDays, dayOfWeek: dayOfWeek, weekStartOf: weekStartOf, isIsoDate: isIsoDate,
+    addDays: addDays, serialToIso: serialToIso, dayOfWeek: dayOfWeek, weekStartOf: weekStartOf, isIsoDate: isIsoDate,
     exerciseKey: exerciseKey, parseExercise: parseExercise, parseGoals: parseGoals,
     parseSchedule: parseSchedule, parseAllowlist: parseAllowlist, allowlistFor: allowlistFor,
     parseDefaults: parseDefaults, defaultFor: defaultFor, validateDefault: validateDefault,

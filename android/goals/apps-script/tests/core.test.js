@@ -331,3 +331,9 @@ test('validateSave: a locked day may keep a workout that was removed since', () 
   const later = C.validateSave(s, noSkate, SUN, ['Rest', 'Skate', 'Push', 'Skate', 'Push', 'Pull', 'Rest'], '2026-11-02');
   assert.match(later.errors.join(), /2026-11-04: unknown workout "Skate"/);
 });
+
+test('serialToIso: spreadsheet serial dates, with or without a time of day', () => {
+  assert.equal(C.serialToIso(46343), '2026-11-17');
+  assert.equal(C.serialToIso(46343.99), '2026-11-17');
+  assert.equal(C.serialToIso(1), '1899-12-31');
+});

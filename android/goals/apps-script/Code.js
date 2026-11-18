@@ -1,6 +1,7 @@
 // Web app for the gym gate. A standalone script that only reads the gym log
 // spreadsheet: appsscript.json asks for spreadsheets.readonly, so it can't
-// change the sheet. The gate's settings live in script properties (see
+// change the sheet. It reads through the Sheets API (the "Sheets" advanced
+// service), since SpreadsheetApp.openById needs the full spreadsheets scope. The gate's settings live in script properties (see
 // parseSettings in Core.js); all logic lives in Core.js.
 //
 //   GET  <url>?token=T                    -> status JSON (see computeStatus)
@@ -41,7 +42,7 @@ var SEED_GOALS_ = [
 // a secret token and the first goals, then logs the token (View > Logs).
 function setup() {
   var props = PropertiesService.getScriptProperties();
-  if (!book_().getSheetByName(EXERCISE_TAB)) throw new Error('the sheet has no ' + EXERCISE_TAB + ' tab');
+  if (book_().tabs.indexOf(EXERCISE_TAB) < 0) throw new Error('the sheet has no ' + EXERCISE_TAB + ' tab');
   if (!props.getProperty('TOKEN')) props.setProperty('TOKEN', Utilities.getUuid());
   if (!parseSettings(props.getProperties()).goals.length) {
     props.setProperty(settingKey('GOALS', todayIso_()), JSON.stringify(SEED_GOALS_));
@@ -140,27 +141,34 @@ function handle_(e, fn) {
 
 var book_cache_ = null;
 
-// The gym log spreadsheet, opened read-only by the SHEET_ID script property.
+// The gym log spreadsheet named by the SHEET_ID script property:
+// { id, timeZone, tabs: [tab titles] }.
 function book_() {
   if (!book_cache_) {
     var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
     if (!id) throw new Error('set the SHEET_ID script property first');
-    book_cache_ = SpreadsheetApp.openById(id);
+    var meta = Sheets.Spreadsheets.get(id, { fields: 'properties.timeZone,sheets.properties.title' });
+    book_cache_ = {
+      id: id,
+      timeZone: meta.properties.timeZone,
+      tabs: (meta.sheets || []).map(function (s) { return s.properties.title; })
+    };
   }
   return book_cache_;
 }
 
 function tz_() {
-  return book_().getSpreadsheetTimeZone();
+  return book_().timeZone;
 }
 
 function todayIso_() {
   return Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd');
 }
 
-function cellIso_(v, tz) {
-  if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
-  var s = String(v || '').trim();
+// A date cell read unformatted is a serial day number; text dates also count.
+function cellIso_(v) {
+  if (typeof v === 'number') return serialToIso(v);
+  var s = String(v == null ? '' : v).trim();
   return isIsoDate(s) ? s : null;
 }
 
@@ -174,11 +182,13 @@ function save_(props, kind, iso, value) {
 }
 
 function readData_() {
-  var tz = tz_();
-  var tab = book_().getSheetByName(EXERCISE_TAB);
-  if (!tab) throw new Error('the sheet has no ' + EXERCISE_TAB + ' tab');
-  var ex = tab.getDataRange().getValues();
-  var header = (ex[1] || []).map(function (v) { return cellIso_(v, tz); });
+  var book = book_();
+  if (book.tabs.indexOf(EXERCISE_TAB) < 0) throw new Error('the sheet has no ' + EXERCISE_TAB + ' tab');
+  // Unformatted, so dates come as serial numbers (no time zone to get wrong). Rows are
+  // cut after their last value.
+  var ex = Sheets.Spreadsheets.Values.get(book.id, "'" + EXERCISE_TAB + "'",
+    { valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' }).values || [];
+  var header = (ex[1] || []).map(cellIso_);
   var s = settings_();
   return { exercise: parseExercise(header, ex.slice(2)), plan: s.plan, goals: s.goals, allowlist: s.allowlist };
 }
