@@ -13,7 +13,7 @@ id="${GATE_DEPLOYMENT_ID:-}"
 if [[ -z "$id" ]]; then
     mapfile -t ids < <(clasp list-deployments --json | node -e '
         const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
-        for (const x of d) if (x.deploymentConfig?.versionNumber) console.log(x.deploymentId);')
+        for (const x of d) if (x.versionNumber ?? x.deploymentConfig?.versionNumber) console.log(x.deploymentId);')
     if (( ${#ids[@]} != 1 )); then
         echo "deploy.sh: expected one versioned deployment, found ${#ids[@]}; set GATE_DEPLOYMENT_ID" >&2
         exit 1
