@@ -33,14 +33,15 @@ properties), one per dated entry, each a JSON array:
 Each day is judged by the goals in effect that day, so changing goals never rewrites the streak.
 
 ## Rules
-- Weeks start Sunday. A saved week needs at least 4 gym days.
+- Weeks start Sunday. A saved week can have any number of gym days: the night before is trusted
+  to plan the next day. The default week needs at least 4.
 - A day can be changed until midnight the night before it; "today" is the server's date in
   the spreadsheet's time zone, never the device clock.
 - Each completed gym day adds 1 to the streak. A missed one spends a freeze token, if there is one,
   or resets the streak. Rest days and today (while still unmet) change nothing.
 - One token per 7 completed gym days, capped at 2. Workouts on rest days don't count.
 - A saved default week takes effect the next day and only fills weeks that aren't saved, so
-  changing it never changes today or an earlier day. It needs the same 4 gym days.
+  changing it never changes today or an earlier day.
 - Saved goals and allowlists take effect the next day (server date), so changing them never
   unblocks anything today. A workout that is still planned from tomorrow on can't be removed.
 

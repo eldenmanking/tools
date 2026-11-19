@@ -266,11 +266,11 @@ function weekView(plan, weekStart, today) {
   return { weekStart: weekStart, stored: !!storedWeeks_(plan_(plan).days)[weekStart], days: days };
 }
 
-// Shared checks for a week of workouts: at least MIN_GYM_DAYS_PER_WEEK gym
-// days, every gym day a known workout (except days where locked(i) is true:
-// they keep whatever they had). Returns { errors, names }, the names normalized
-// ("" or rest -> "Rest").
-function checkWeek_(goals, days, label, locked) {
+// Shared checks for a week of workouts: at least <minGym> gym days, every gym
+// day a known workout (except days where locked(i) is true: they keep whatever
+// they had). Returns { errors, names }, the names normalized ("" or rest ->
+// "Rest").
+function checkWeek_(goals, days, label, locked, minGym) {
   var errors = [], names = [], gym = 0;
   for (var i = 0; i < 7; i++) {
     var w = String(days[i] || '').trim() || REST;
@@ -285,8 +285,8 @@ function checkWeek_(goals, days, label, locked) {
     }
     names.push(w);
   }
-  if (gym < MIN_GYM_DAYS_PER_WEEK) {
-    errors.push('a week needs at least ' + MIN_GYM_DAYS_PER_WEEK + ' gym days, got ' + gym);
+  if (gym < minGym) {
+    errors.push('a week needs at least ' + minGym + ' gym days, got ' + gym);
   }
   return { errors: errors, names: names };
 }
@@ -301,14 +301,15 @@ function validateDefault(goals, days, today) {
   if (!days || days.length !== 7) {
     return { ok: false, errors: ['days must list 7 entries, Sunday first'], row: [] };
   }
-  var c = checkWeek_(goals, days, function (i) { return WEEKDAYS_[i]; });
+  var c = checkWeek_(goals, days, function (i) { return WEEKDAYS_[i]; }, null, MIN_GYM_DAYS_PER_WEEK);
   return { ok: c.errors.length === 0, errors: c.errors, row: [addDays(today, 1)].concat(c.names) };
 }
 
 // Check a save of one whole week. A day can change only until midnight the
-// night before it (so today and earlier are locked), the week needs at least
-// MIN_GYM_DAYS_PER_WEEK gym days, and every gym day from tomorrow on must name a
-// workout in <goals> (the goals in effect from tomorrow).
+// night before it (so today and earlier are locked), and every gym day from
+// tomorrow on must name a workout in <goals> (the goals in effect from
+// tomorrow). A saved week has no minimum of gym days: the night before is
+// trusted to plan the next day; the minimum applies to the default week.
 //   days: 7 workout names, Sunday first ("Rest" or "" for rest)
 // Returns { ok, errors: [string], rows: [[iso, workout]...] } (rows to store).
 function validateSave(plan, goals, weekStart, days, today) {
@@ -319,7 +320,7 @@ function validateSave(plan, goals, weekStart, days, today) {
     return { ok: false, errors: ['days must list 7 entries, Sunday first'], rows: [] };
   }
   var c = checkWeek_(goals, days, function (i) { return addDays(weekStart, i); },
-    function (i) { return addDays(weekStart, i) <= today; });
+    function (i) { return addDays(weekStart, i) <= today; }, 0);
   var errors = c.errors, rows = [];
   for (var i = 0; i < 7; i++) {
     var iso = addDays(weekStart, i);

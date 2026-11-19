@@ -101,8 +101,8 @@ test('validateSave: minimum gym days, known workouts, Sunday start', () => {
   const ok = C.validateSave({}, GOALS, SUN, ['Rest', 'Push', 'Pull', 'Rest', 'Push', 'Pull', ''], today);
   assert.equal(ok.ok, true, ok.errors.join());
   assert.equal(ok.rows[6][1], 'Rest');
-  const few = C.validateSave({}, GOALS, SUN, ['Rest', 'Push', 'Pull', 'Rest', 'Push', 'Rest', 'Rest'], today);
-  assert.match(few.errors.join(), /at least 4 gym days, got 3/);
+  // A saved week has no minimum of gym days, only the default week does.
+  assert.equal(C.validateSave({}, GOALS, SUN, Array(7).fill('Rest'), today).ok, true);
   const unknown = C.validateSave({}, GOALS, SUN, ['Yoga', 'Push', 'Pull', 'Rest', 'Push', 'Pull', 'Rest'], today);
   assert.match(unknown.errors.join(), /unknown workout "Yoga"/);
   assert.equal(C.validateSave({}, GOALS, '2026-11-02', Array(7).fill('Push'), today).ok, false);

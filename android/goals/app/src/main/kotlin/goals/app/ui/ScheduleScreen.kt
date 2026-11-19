@@ -92,7 +92,6 @@ fun ScheduleScreen(
 class WeekEditUi(
     val draft: List<String>?,
     val workouts: List<String>,
-    val minGymDays: Int,
     val saving: Boolean,
     val errors: List<String>,
     val notice: String?,
@@ -127,10 +126,11 @@ private fun ColumnScope.ThisWeek(today: String?, weeks: List<List<WeekDay>>, ind
         }
     }
     if (edit != null && draft != null) {
-        // The same checks as the server; a locked day keeps its workout even if it was removed since.
+        // The same checks as the server: known workouts, no minimum of gym days for a single week.
+        // A locked day keeps its workout even if it was removed since.
         val known = edit.workouts + days.filter { it.locked }.flatMap { workoutParts(it.workout) }
-        val problems = defaultWeekErrors(draft, known, edit.minGymDays) + edit.errors
-        InkText(problems.joinToString(" ").ifEmpty { "This week only; the default week stays as it is." }, size = 20.sp, bold = true)
+        val problems = defaultWeekErrors(draft, known, minGymDays = 0) + edit.errors
+        InkText(problems.joinToString(" ").ifEmpty { "Only this week changes." }, size = 20.sp, bold = true)
         val canSave = problems.isEmpty() && !edit.saving
         InkButton(if (edit.saving) "Saving…" else "Save this week", { if (canSave) edit.onSave() }, Modifier.fillMaxWidth(), filled = canSave)
     }

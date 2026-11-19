@@ -148,7 +148,6 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                         WeekEditUi(
                             draft = schedule.weekDrafts[shown],
                             workouts = v.workouts,
-                            minGymDays = v.minGymDays,
                             saving = schedule.weekSaver.saving,
                             errors = schedule.weekSaver.errors,
                             notice = schedule.weekSaver.notice,

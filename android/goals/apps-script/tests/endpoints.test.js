@@ -107,7 +107,7 @@ test('a day with too little logged stays blocked and shows progress', () => {
   assert.deepEqual(st.goalsProgress.map((g) => g.logged), [1, 1, 0]);
 });
 
-test('saveSchedule stores the week; locked days and short weeks are refused', () => {
+test('saveSchedule stores the week; locked days are refused, short weeks are fine', () => {
   const s = setup();
   const week = ['Rest', 'Upper', 'Lower', 'Upper', 'Rest', 'Skate', 'Rest'];
   const ok = s.post({ token: TOKEN, today: '2026-11-21' }, { action: 'saveSchedule', weekStart: '2026-11-22', days: week });
@@ -125,7 +125,7 @@ test('saveSchedule stores the week; locked days and short weeks are refused', ()
 
   const short = s.post({ token: TOKEN, today: '2026-11-21' },
     { action: 'saveSchedule', weekStart: '2026-11-29', days: ['Rest', 'Upper', 'Rest', 'Upper', 'Rest', 'Skate', 'Rest'] });
-  assert.match(short.errors.join(), /at least 4 gym days, got 3/);
+  assert.equal(short.ok, true, JSON.stringify(short));
 });
 
 test('schedule action returns both weeks, the default, goals and allowlist', () => {

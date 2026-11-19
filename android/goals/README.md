@@ -38,8 +38,8 @@ goals
      sections (Push, Pull, Core, ...), a specific exercise, or both.
    - It returns `{todayScheduled, workout, done, blocked, streak, longest, tokens, goalsProgress,
      allowlist, week, history, timeZone}`.
-   - It saves weekly schedules, rejecting changes to locked days and weeks with fewer than 4 gym
-     days, and a default week that fills unsaved weeks from the next day on.
+   - It saves weekly schedules, rejecting changes to locked days, and a default week (at least 4
+     gym days) that fills unsaved weeks from the next day on.
    - It saves goals and allowlists, which take effect the next day.
    - Access needs a secret token in the URL, so the app needs no Google sign-in.
 2. **Android app** (Kotlin and Jetpack Compose; `core` holds the logic, `app` the UI).
