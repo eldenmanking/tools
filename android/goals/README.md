@@ -115,8 +115,9 @@ What the tablet's own framework does (from a decompiled `services.jar` of firmwa
    notification.
 4. Wire up the endpoint and add the persistent notification. Done: `GateClient` reads
    `gate.url` and `gate.token` from `local.properties`; without them the app shows sample data.
-5. Schedule, default week, goals and allowlist editors. Done so far: tabs (Status, Schedule, Goals,
-   Allowlist) and the default week editor; goals and allowlist are shown read-only.
+5. Schedule, default week, goals and allowlist editors. Done: tabs (Status, Schedule, Goals,
+   Allowlist); editing a single week (this week or next) and the default week, with days that
+   combine workouts; the goals editor; the allowlist picker (launchable apps, labels only).
 6. On the device: check that the background service survives (exempt the app from battery
    optimization), then polish for e-ink.
 

@@ -26,9 +26,9 @@ class GateClient(private val url: String, private val token: String) : StatusSou
     suspend fun schedule(): ScheduleResult =
         request("schedule", null).fold({ ScheduleJson.parse(it) }, { ScheduleResult.Error(it) })
 
-    /** Saves [days] (7 names, Sunday first) as the default week from tomorrow. */
-    suspend fun saveDefault(days: List<String>): SaveResult =
-        request(null, ScheduleJson.saveDefault(days)).fold({ ScheduleJson.parseSave(it) }, { SaveResult.Error(it) })
+    /** Sends a save request ([ScheduleJson] builds the body). */
+    suspend fun save(body: String): SaveResult =
+        request(null, body).fold({ ScheduleJson.parseSave(it) }, { SaveResult.Error(it) })
 
     /** The response body, or an error message. A [body] makes it a POST. */
     private suspend fun request(action: String?, body: String?): Answer = withContext(Dispatchers.IO) {

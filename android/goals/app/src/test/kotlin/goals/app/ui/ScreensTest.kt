@@ -128,6 +128,17 @@ class ScreensTest {
     }
 
     @Test
+    fun workoutEditor() = paparazzi.snapshot {
+        val w = Workout("Upper", listOf(GoalRule("section", "Push", 2.0), GoalRule("section", "Pull", 2.0), GoalRule("exercise", "Figure skating")))
+        AppFrame(Tab.Goals, {}) { WorkoutEditor(w, {}, {}, {}, {}) }
+    }
+
+    @Test
+    fun addGoal() = paparazzi.snapshot {
+        AppFrame(Tab.Goals, {}) { AddGoal({}, {}) }
+    }
+
+    @Test
     fun goals() = paparazzi.snapshot {
         val goals = Goals(
             current = listOf(
@@ -141,7 +152,15 @@ class ScreensTest {
 
     @Test
     fun allowlist() = paparazzi.snapshot {
-        AppFrame(Tab.Allowlist, {}) { AllowlistScreen(locked.copy(allowlist = listOf("com.example.notes", "com.example.reader"))) }
+        AppFrame(Tab.Allowlist, {}) { AllowlistScreen(
+                locked,
+                AllowlistUi(
+                    apps = listOf(goals.app.data.AppEntry("Calendar", "com.example.calendar"), goals.app.data.AppEntry("Notes", "com.example.notes"),
+                        goals.app.data.AppEntry("Reader", "com.example.reader")),
+                    draft = listOf("com.example.notes", "com.example.reader"), saved = listOf("com.example.notes"), pending = null,
+                    saving = false, errors = emptyList(), notice = null, onToggle = {}, onSave = {},
+                ),
+            ) }
     }
 
     @Test

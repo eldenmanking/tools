@@ -42,6 +42,24 @@ class ScheduleTest {
     }
 
     @Test
+    fun requestBodies() {
+        assertEquals("""{"action":"saveSchedule","weekStart":"2026-11-22","days":["Rest","Upper"]}""", ScheduleJson.saveWeek("2026-11-22", listOf("Rest", "Upper")))
+        assertEquals("""{"action":"saveAllowlist","packages":["com.a.b"]}""", ScheduleJson.saveAllowlist(listOf("com.a.b")))
+        assertEquals(
+            """{"action":"saveGoals","workouts":[{"name":"Skate","rules":[{"type":"exercise","name":"Figure skating","min":1.0}]}]}""",
+            ScheduleJson.saveGoals(listOf(Workout("Skate", listOf(GoalRule("exercise", "Figure skating"))))),
+        )
+    }
+
+    @Test
+    fun goalChecks() {
+        val ok = Workout("Upper", listOf(GoalRule("section", "Push", 2.0)))
+        assertEquals(emptyList(), goalsErrors(listOf(ok)))
+        assertEquals(listOf("\"upper\" is listed twice.", "\"Rest\" is reserved for rest days.", "Swim needs at least one goal."),
+            goalsErrors(listOf(ok, ok.copy(name = "upper"), ok.copy(name = "Rest"), Workout("Swim"))))
+    }
+
+    @Test
     fun combinedWorkouts() {
         assertEquals(listOf("Upper", "Skate"), workoutParts(" Upper+ Skate "))
         assertEquals("Upper + Skate", joinWorkouts(listOf("Upper", "Skate")))

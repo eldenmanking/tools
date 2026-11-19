@@ -9,6 +9,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import goals.app.data.AppEntry
+import goals.app.data.launchableApps
+import goals.app.ui.AddGoal
+import goals.app.ui.AllowlistUi
+import goals.app.ui.GoalsUi
+import goals.app.ui.WeekEditUi
+import goals.app.ui.WorkoutEditor
+import goals.core.Workout
+import goals.core.editableAllowlist
+import goals.core.editableGoals
 import goals.app.data.SampleStatusSource
 import goals.app.data.StatusSource
 import goals.app.data.StatusSources
@@ -55,6 +66,9 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     var tab by rememberSaveable { mutableStateOf(Tab.Status) }
     var scheduleMode by rememberSaveable { mutableStateOf(ScheduleMode.Week) }
     var weekShown by rememberSaveable { mutableStateOf(0) }
+    var addingGoal by rememberSaveable { mutableStateOf(false) }
+    var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     val fetch: (RefreshTrigger) -> Unit = { trigger ->
@@ -123,25 +137,106 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
             Tab.Schedule -> {
                 LaunchedEffect(Unit) { schedule?.loadOnce() }
                 val picking = schedule?.picking
-                val draft = schedule?.draft
-                if (schedule != null && picking != null && draft != null) {
+                if (schedule != null && picking != null) {
                     BackHandler { schedule.picking = null }
-                    DayPicker(picking, schedule.view?.workouts.orEmpty(), draft[picking], { schedule.pick(picking, it) }, { schedule.picking = null })
+                    DayPicker(picking.day, schedule.view?.workouts.orEmpty(), schedule.picked(picking), { schedule.pick(picking, it) }, { schedule.picking = null })
                 } else {
                     // The schedule has this week and next; until it loads, the status has this week.
                     val weeks = schedule?.view?.weeks?.map { it.days }?.takeIf { it.isNotEmpty() } ?: listOfNotNull(status?.week)
-                    ScheduleScreen(status, scheduleMode, { scheduleMode = it }, schedule?.editor(), weeks, weekShown, { weekShown = it })
+                    val shown = weekShown.coerceIn(0, maxOf(0, weeks.size - 1))
+                    val weekEdit = schedule?.view?.let { v ->
+                        WeekEditUi(
+                            draft = schedule.weekDrafts[shown],
+                            workouts = v.workouts,
+                            minGymDays = v.minGymDays,
+                            saving = schedule.weekSaver.saving,
+                            errors = schedule.weekSaver.errors,
+                            notice = schedule.weekSaver.notice,
+                            onPickDay = { schedule.picking = PickTarget.Week(shown, it) },
+                            onSave = { schedule.saveWeek(shown) },
+                        )
+                    }
+                    ScheduleScreen(status, scheduleMode, { scheduleMode = it }, schedule?.editor(), weeks, shown, { weekShown = it }, weekEdit)
                 }
             }
             Tab.Goals -> {
                 LaunchedEffect(Unit) { schedule?.loadOnce() }
-                GoalsScreen(
-                    goals = schedule?.view?.goals,
-                    message = if (schedule == null) "Add gate.url and gate.token to local.properties to see your goals." else schedule.loadError,
-                    onRetry = schedule?.takeIf { it.loadError != null && !it.loading }?.let { s -> { s.load() } },
+                val draft = schedule?.goalsDraft
+                val open = schedule?.editingWorkout
+                if (schedule != null && draft != null && open != null && open in draft.indices) {
+                    fun update(w: Workout?) {
+                        schedule.goalsDraft = draft.toMutableList().also { if (w == null) it.removeAt(open) else it[open] = w }
+                        schedule.goalsSaver.errors = emptyList()
+                    }
+                    if (addingGoal) {
+                        BackHandler { addingGoal = false }
+                        AddGoal({ r -> update(draft[open].copy(rules = draft[open].rules + r)); addingGoal = false }, { addingGoal = false })
+                    } else {
+                        BackHandler { schedule.editingWorkout = null }
+                        WorkoutEditor(
+                            draft[open],
+                            ::update,
+                            onAddGoal = { addingGoal = true },
+                            onDelete = { update(null); schedule.editingWorkout = null },
+                            onDone = { schedule.editingWorkout = null },
+                        )
+                    }
+                } else {
+                    val v = schedule?.view
+                    GoalsScreen(
+                        goals = v?.goals,
+                        message = if (schedule == null) "Add gate.url and gate.token to local.properties to see your goals." else schedule.loadError,
+                        onRetry = schedule?.takeIf { it.loadError != null && !it.loading }?.let { s -> { s.load() } },
+                        ui = if (v != null && draft != null) {
+                            GoalsUi(
+                                draft = draft,
+                                saved = editableGoals(v),
+                                pendingFrom = v.goals.pending?.from,
+                                saving = schedule.goalsSaver.saving,
+                                errors = schedule.goalsSaver.errors,
+                                notice = schedule.goalsSaver.notice,
+                                onOpen = { schedule.editingWorkout = it },
+                                onAdd = {
+                                    schedule.goalsDraft = draft + Workout("")
+                                    schedule.editingWorkout = draft.size
+                                },
+                                onSave = schedule::saveGoals,
+                            )
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
+            Tab.Allowlist -> {
+                LaunchedEffect(Unit) {
+                    schedule?.loadOnce()
+                    if (apps == null) apps = launchableApps(context)
+                }
+                val v = schedule?.view
+                val draft = schedule?.allowDraft
+                AllowlistScreen(
+                    status,
+                    if (v != null && draft != null) {
+                        AllowlistUi(
+                            apps = apps,
+                            draft = draft,
+                            saved = editableAllowlist(v),
+                            pending = v.allowlist.pending,
+                            saving = schedule.allowSaver.saving,
+                            errors = schedule.allowSaver.errors,
+                            notice = schedule.allowSaver.notice,
+                            onToggle = { p ->
+                                schedule.allowDraft = if (p in draft) draft - p else draft + p
+                                schedule.allowSaver.errors = emptyList()
+                            },
+                            onSave = schedule::saveAllowlist,
+                        )
+                    } else {
+                        null
+                    },
                 )
             }
-            Tab.Allowlist -> AllowlistScreen(status)
         }
     }
 }
