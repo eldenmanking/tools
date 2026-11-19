@@ -70,6 +70,12 @@ class ScreensTest {
     }
 
     @Test
+    fun gateCanSkip() = paparazzi.snapshot {
+        GateScreen("2026-11-17", locked.copy(canSkip = true, todayTokens = 1), unknownReason = null, checking = false, error = null,
+            onCheckAgain = {}, onDebugUnlock = null, onSkip = {})
+    }
+
+    @Test
     fun gateUnknown() = paparazzi.snapshot {
         GateScreen(
             "2026-11-18",
@@ -162,6 +168,11 @@ class ScreensTest {
                     saving = false, errors = emptyList(), notice = null, onToggle = {}, onSave = {},
                 ),
             ) }
+    }
+
+    @Test
+    fun homeCanSkip() = paparazzi.snapshot {
+        AppFrame(Tab.Status, {}) { HomeScreen(locked.copy(canSkip = true, todayTokens = 1, tokens = 0), HomeCheck(false, null, {}, null, {})) }
     }
 
     @Test

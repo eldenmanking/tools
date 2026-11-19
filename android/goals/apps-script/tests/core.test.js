@@ -385,3 +385,47 @@ test('setCount: entries separated by , or ; outside parentheses', () => {
   const rows = [['', 'Push', 'Bench', '45(8),45(8),50(6)'], ['', '', 'Dips', '10;10']];
   assert.equal(C.parseExercise(header, rows)['2026-11-13'].sections.push, 5);
 });
+
+test('skip: a skipped gym day spends a token, keeps the streak and unblocks today', () => {
+  const ex = pushDone(['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07']);
+  // 7 done -> 1 token. Skip Sunday 11/08 (today).
+  const today = '2026-11-08';
+  const plan = C.parseSchedule(week('2026-11-08', Array(7).fill('Push')).concat(week(SUN, Array(7).fill('Push'))));
+  assert.equal(C.computeStatus(plan, GOALS, ex, today).canSkip, true);
+  const st = C.computeStatus(plan, GOALS, ex, today, [], { skips: { [today]: true }, grants: {} });
+  assert.equal(st.skipped, true);
+  assert.equal(st.blocked, false);
+  assert.equal(st.canSkip, false);
+  assert.equal(st.tokens, 0);
+  assert.equal(st.streak, 7);
+  assert.equal(st.history.at(-1).event, 'skipped');
+});
+
+test('skip: needs a token; a recorded skip with none left is just a pending or missed day', () => {
+  const plan = C.parseSchedule(week(SUN, Array(7).fill('Push')));
+  const st = C.computeStatus(plan, GOALS, {}, '2026-11-01', [], { skips: { '2026-11-01': true }, grants: {} });
+  assert.equal(st.canSkip, false);
+  assert.equal(st.skipped, false);
+  assert.equal(st.blocked, true);
+});
+
+test('grants: tokens for one day only, spent first, gone the next day', () => {
+  const plan = C.parseSchedule(week(SUN, Array(7).fill('Push')));
+  const grants = { '2026-11-02': 1 };
+  const mon = C.computeStatus(plan, GOALS, pushDone(['2026-11-01']), '2026-11-02', [], { skips: {}, grants });
+  assert.equal(mon.tokens, 0);
+  assert.equal(mon.todayTokens, 1);
+  assert.equal(mon.canSkip, true);
+  const skipped = C.computeStatus(plan, GOALS, pushDone(['2026-11-01']), '2026-11-02', [], { skips: { '2026-11-02': true }, grants });
+  assert.equal(skipped.skipped, true);
+  assert.equal(skipped.todayTokens, 0);
+  // Unused, Monday's grant still covers Monday's miss when the day is over, but not Tuesday's.
+  const wed = C.computeStatus(plan, GOALS, pushDone(['2026-11-01']), '2026-11-04', [], { skips: {}, grants });
+  assert.deepEqual(wed.history.map((h) => h.event), ['done', 'frozen', 'missed', 'pending']);
+  assert.equal(wed.todayTokens, 0);
+});
+
+test('parseSettings: skips and grants', () => {
+  const s = C.parseSettings({ 'SKIP_2026-11-02': 'true', 'GRANT_2026-11-02': '1', 'GRANT_2026-11-03': '0.5', 'SKIP_2026-11-04': '"yes"' });
+  assert.deepEqual(s.tokens, { skips: { '2026-11-02': true }, grants: { '2026-11-02': 1 } });
+});

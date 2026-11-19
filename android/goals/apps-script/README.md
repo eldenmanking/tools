@@ -31,6 +31,11 @@ properties), one per dated entry, each a JSON array:
 - `ALLOWLIST_<date>`: the packages allowed from that date. While today is blocked, every app
   outside the list in effect is blocked.
 
+- `SKIP_<date>`: `true` when that day was skipped with a freeze token (the app's "Skip today").
+- `GRANT_<date>`: a whole number of extra freeze tokens usable on that date only, spent before
+  earned ones. There is no endpoint for it: add it by hand under Script properties, e.g.
+  `GRANT_2026-11-19` = `1`.
+
 Each day is judged by the goals in effect that day, so changing goals never rewrites the streak.
 
 ## Rules
@@ -40,6 +45,8 @@ Each day is judged by the goals in effect that day, so changing goals never rewr
   the spreadsheet's time zone, never the device clock.
 - Each completed gym day adds 1 to the streak. A missed one spends a freeze token, if there is one,
   or resets the streak. Rest days and today (while still unmet) change nothing.
+- A blocked gym day can be skipped, but only with a token: it counts like a missed day covered by a
+  token (the streak is kept) and unblocks the rest of the day.
 - One token per 7 completed gym days, capped at 2. Workouts on rest days don't count.
 - A saved default week takes effect the next day and only fills weeks that aren't saved, so
   changing it never changes today or an earlier day.

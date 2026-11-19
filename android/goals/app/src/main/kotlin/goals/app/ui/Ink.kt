@@ -90,16 +90,16 @@ fun InkLabel(text: String, modifier: Modifier = Modifier) {
 
 /** A full-width button: filled (primary) or outlined. */
 @Composable
-fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, filled: Boolean = true) {
+fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, filled: Boolean = true, height: Dp = 80.dp, size: TextUnit = 28.sp) {
     val shape = if (filled) Modifier.background(Ink.Black) else Modifier.border(Ink.Rule, Ink.Black)
     Box(
         modifier = modifier
-            .height(80.dp)
+            .height(height)
             .then(shape)
             .clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        InkText(text, size = 28.sp, bold = true, color = if (filled) Ink.White else Ink.Black)
+        InkText(text, size = size, bold = true, color = if (filled) Ink.White else Ink.Black)
     }
 }
 

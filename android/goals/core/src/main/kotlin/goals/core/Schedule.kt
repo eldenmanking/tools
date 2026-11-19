@@ -120,6 +120,9 @@ object ScheduleJson {
     fun saveWeek(weekStart: String, days: List<String>): String =
         body("saveSchedule") { put("weekStart", JsonPrimitive(weekStart)); put("days", strings(days)) }
 
+    /** The POST body for skipping today with a freeze token. */
+    fun skipToday(): String = body("skipToday") {}
+
     /** The POST body for saving the allowlist (from tomorrow). */
     fun saveAllowlist(packages: List<String>): String = body("saveAllowlist") { put("packages", strings(packages)) }
 

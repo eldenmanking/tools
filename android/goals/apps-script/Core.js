@@ -458,13 +458,16 @@ function validateGoals(plan, workouts, today) {
 
 // ---- stored settings -------------------------------------------------------
 
-// The settings are script properties, one per dated entry, each a JSON array:
+// The settings are script properties, one per dated entry, each JSON:
 //   WEEK_<sunday>        7 workout names, Sunday first (a saved week)
 //   DEFAULT_<from>       7 workout names, Sunday first (the default week)
 //   GOALS_<from>         [{ name, rules }] (see validateGoals)
 //   ALLOWLIST_<from>     package names
+//   SKIP_<date>          true: that day was skipped with a freeze token (saveSkip)
+//   GRANT_<date>         a whole number of extra freeze tokens usable on that date
+//                        only, spent before earned ones. Set by hand; no endpoint.
 // Other properties and malformed values are ignored.
-var SETTING_KEY_RE_ = /^(WEEK|DEFAULT|GOALS|ALLOWLIST)_(\d{4}-\d{2}-\d{2})$/;
+var SETTING_KEY_RE_ = /^(WEEK|DEFAULT|GOALS|ALLOWLIST|SKIP|GRANT)_(\d{4}-\d{2}-\d{2})$/;
 
 function settingKey(kind, iso) {
   return kind + '_' + iso;
@@ -472,12 +475,20 @@ function settingKey(kind, iso) {
 
 // Returns { plan: { days, defaults }, goals: parseGoalEntries(...), allowlist: parseAllowlist(...) }.
 function parseSettings(props) {
-  var days = [], defaults = [], goals = [], allow = [];
+  var days = [], defaults = [], goals = [], allow = [], skips = {}, grants = {};
   Object.keys(props || {}).forEach(function (k) {
     var m = SETTING_KEY_RE_.exec(k);
     if (!m || !isIsoDate(m[2])) return;
     var v;
     try { v = JSON.parse(props[k]); } catch (e) { return; }
+    if (m[1] === 'SKIP') {
+      if (v === true) skips[m[2]] = true;
+      return;
+    }
+    if (m[1] === 'GRANT') {
+      if (typeof v === 'number' && v >= 1 && v === Math.floor(v)) grants[m[2]] = v;
+      return;
+    }
     if (!Array.isArray(v)) return;
     if (m[1] === 'WEEK') {
       if (dayOfWeek(m[2]) !== 0) return;
@@ -493,7 +504,8 @@ function parseSettings(props) {
   return {
     plan: { days: parseSchedule(days), defaults: parseDefaults(defaults) },
     goals: parseGoalEntries(goals),
-    allowlist: parseAllowlist(allow)
+    allowlist: parseAllowlist(allow),
+    tokens: { skips: skips, grants: grants }
   };
 }
 
@@ -552,10 +564,15 @@ function dayProgress(goals, workout, day) {
 // freeze token (cap MAX_TOKENS). Missed gym day before today: spend a token if
 // there is one, else the streak resets. Rest days change nothing; neither does
 // today while it is still unmet. Logging on a rest day is a bonus.
+// A gym day skipped with a token (tokenDays.skips) counts as frozen, today
+// included, and unblocks it. Tokens granted for a day (tokenDays.grants) exist
+// on that day only and are spent before earned ones.
 //   goals: goal entries (parseGoalEntries), so each day is judged by the goals
 //          in effect that day; a bare parseGoals map applies to every day.
-function computeStatus(schedule, goals, exercise, today, allowlist) {
+function computeStatus(schedule, goals, exercise, today, allowlist, tokenDays) {
+  var skips = (tokenDays && tokenDays.skips) || {}, grants = (tokenDays && tokenDays.grants) || {};
   var streak = 0, longest = 0, tokens = 0, completed = 0;
+  var todayGrant = grants[today] || 0, skippedToday = false;
   var first = planStart_(plan_(schedule));
   var history = [];
   if (first !== null) {
@@ -563,22 +580,33 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
       var w = workoutFor(schedule, d);
       if (!isGymDay(w)) continue;
       var p = dayProgress(goalsOn_(goals, d), w, exercise[d]);
+      var grant = grants[d] || 0;
+      // Spends a token, the day's own grant first. False if there is none.
+      var spend = function () {
+        if (grant > 0) grant--;
+        else if (tokens > 0) tokens--;
+        else return false;
+        return true;
+      };
       var event;
       if (p.done) {
         streak++;
         completed++;
         if (completed % DAYS_PER_TOKEN === 0 && tokens < MAX_TOKENS) tokens++;
         event = 'done';
+      } else if (skips[d] && spend()) {
+        event = 'skipped';
+        if (d === today) skippedToday = true;
       } else if (d === today) {
         event = 'pending';
-      } else if (tokens > 0) {
-        tokens--;
+      } else if (spend()) {
         event = 'frozen';
       } else {
         streak = 0;
         event = 'missed';
       }
       if (streak > longest) longest = streak;
+      if (d === today) todayGrant = grant;
       history.push({ date: d, workout: w, event: event });
     }
   }
@@ -591,11 +619,17 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
     workout: todayWorkout,
     done: scheduled ? tp.done : false,
     unknownWorkout: !!tp.unknownWorkout,
+    // Today was skipped with a freeze token.
+    skipped: skippedToday,
     // The app blocks only while this is true.
-    blocked: scheduled && !tp.done,
+    blocked: scheduled && !tp.done && !skippedToday,
+    // Today can still be skipped: blocked, with a token to spend.
+    canSkip: scheduled && !tp.done && !skippedToday && tokens + todayGrant > 0,
     streak: streak,
     longest: longest,
+    // Earned tokens, and tokens usable today only (granted for today).
     tokens: tokens,
+    todayTokens: todayGrant,
     goalsProgress: tp.progress,
     week: weekView(schedule, weekStartOf(today), today).days,
     // While blocked, every app outside this list is blocked.

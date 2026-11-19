@@ -6,7 +6,7 @@ enum class DayMark {
     DONE,
     /** Gym day missed with no token: an "×". */
     MISSED,
-    /** Gym day missed, a freeze token kept the streak: an "F". */
+    /** Gym day missed or skipped, a freeze token kept the streak: an "F". */
     FROZEN,
     /** Gym day still to come (or today, not yet done): an empty box. */
     GYM,
@@ -25,7 +25,7 @@ fun weekCells(status: Status): List<WeekCell> {
         val mark = when (events[day.date]?.event) {
             "done" -> DayMark.DONE
             "missed" -> DayMark.MISSED
-            "frozen" -> DayMark.FROZEN
+            "frozen", "skipped" -> DayMark.FROZEN
             else -> if (isGymDay(day.workout)) DayMark.GYM else DayMark.REST
         }
         WeekCell(day.date, day.workout, mark, day.date == status.today)

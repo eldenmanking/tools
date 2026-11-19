@@ -36,6 +36,8 @@ import goals.app.ui.ScheduleScreen
 import goals.app.ui.Tab
 import goals.core.GateState
 import goals.core.RefreshTrigger
+import goals.core.SaveResult
+import goals.core.ScheduleJson
 import goals.core.StatusResult
 import goals.core.gateState
 import goals.core.shouldFetch
@@ -71,10 +73,11 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val fetch: (RefreshTrigger) -> Unit = { trigger ->
+    // [force] skips the refresh policy, after a change that the status must show at once.
+    fun fetch(trigger: RefreshTrigger, force: Boolean = false) {
         val now = Instant.now()
         val state = gateState(cached, now, ZoneId.systemDefault())
-        if (!checking && shouldFetch(trigger, state, cached, now, Fetches.lastAttempt, Fetches.failures)) {
+        if (!checking && (force || shouldFetch(trigger, state, cached, now, Fetches.lastAttempt, Fetches.failures))) {
             checking = true
             Fetches.lastAttempt = now
             scope.launch {
@@ -96,6 +99,23 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     }
     val check: () -> Unit = { fetch(RefreshTrigger.USER) }
     val client = StatusSources.client.takeIf { source === it }
+    // Spends a freeze token on today, then fetches the status that shows it open.
+    val skip: (() -> Unit)? = client?.let { c ->
+        {
+            if (!checking) {
+                checking = true
+                scope.launch {
+                    val r = c.save(ScheduleJson.skipToday())
+                    checking = false
+                    when (r) {
+                        is SaveResult.Saved -> fetch(RefreshTrigger.USER, force = true)
+                        is SaveResult.Refused -> error = r.errors.joinToString(" ")
+                        is SaveResult.Error -> error = "couldn't skip: ${r.message}"
+                    }
+                }
+            }
+        }
+    }
     val schedule = remember(client) { client?.let { ScheduleModel(it, scope, onSaved = check) } }
     // The gate over a blocked app fetches less often than opening the app itself.
     LaunchedEffect(Unit) { fetch(if (onOpen != null) RefreshTrigger.GATED_APP_OPENED else RefreshTrigger.USER) }
@@ -120,6 +140,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
             error = error,
             onCheckAgain = check,
             onDebugUnlock = debugUnlock,
+            onSkip = skip,
         )
     }
     if (onOpen != null) {
@@ -130,7 +151,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
         when (tab) {
             Tab.Status ->
                 if (status != null && (state == GateState.Open || state is GateState.Locked)) {
-                    HomeScreen(status, HomeCheck(checking, error, check, debugUnlock))
+                    HomeScreen(status, HomeCheck(checking, error, check, debugUnlock, skip))
                 } else {
                     gate()
                 }

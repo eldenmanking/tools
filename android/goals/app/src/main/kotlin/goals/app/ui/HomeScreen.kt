@@ -43,6 +43,7 @@ import goals.core.weekCells
 fun HomeScreen(status: Status, check: HomeCheck? = null) {
     val (title, body) = when {
         status.blocked -> "Gym first." to "Other apps unlock once ${status.workout} is in your log."
+        status.skipped -> "Skipped." to "A freeze token covers today. Every app is open until tomorrow."
         // A day with no source has nothing planned: no saved week, default or earlier week to copy.
         !status.todayScheduled && status.week.all { it.source == null } ->
             "Nothing planned." to "Set a schedule to start your streak."
@@ -81,12 +82,12 @@ fun HomeScreen(status: Status, check: HomeCheck? = null) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 StatBox("${status.streak}", "streak", Modifier.weight(1f))
                 StatBox("${status.longest}", "longest", Modifier.weight(1f))
-                StatBox("${status.tokens}", "tokens", Modifier.weight(1f), suffix = "/$MAX_TOKENS")
+                StatBox("${status.tokens}", tokenLabel(status, short = true), Modifier.weight(1f), suffix = "/$MAX_TOKENS")
             }
         }
 
         if (status.blocked && check != null) {
-            CheckButtons(status, check.checking, check.error, check.onCheckAgain, check.onDebugUnlock, caption = false)
+            CheckButtons(status, check.checking, check.error, check.onCheckAgain, check.onDebugUnlock, caption = false, onSkip = check.onSkip)
         }
     }
 }
@@ -97,6 +98,8 @@ class HomeCheck(
     val error: String?,
     val onCheckAgain: () -> Unit,
     val onDebugUnlock: (() -> Unit)?,
+    /** Skips today with a freeze token; null where skipping isn't possible (no endpoint). */
+    val onSkip: (() -> Unit)? = null,
 )
 
 @Composable
@@ -138,7 +141,7 @@ fun markText(cell: WeekCell): String = when (cell.mark) {
     DayMark.DONE -> "Done: every goal was met."
     DayMark.GYM -> if (cell.isToday) "Gym day, not done yet." else "Gym day, still to come."
     DayMark.MISSED -> "Missed with no freeze token left, so the streak reset."
-    DayMark.FROZEN -> "Missed, but a freeze token kept the streak."
+    DayMark.FROZEN -> "A freeze token covered this day; the streak was kept."
     DayMark.REST -> "Rest day: nothing is locked."
 }
 

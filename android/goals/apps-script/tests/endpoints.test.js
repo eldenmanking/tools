@@ -213,3 +213,20 @@ test('?today is ignored unless ALLOW_FAKE_TODAY is set', () => {
   assert.notEqual(st.today, '2000-01-01');
   assert.match(st.today, /^\d{4}-\d{2}-\d{2}$/);
 });
+
+test('skipToday: needs a token; a grant for today makes one; then today is open', () => {
+  const s = setup();
+  s.post({ token: TOKEN, today: '2026-11-14' },
+    { action: 'saveDefault', days: ['Upper', 'Upper', 'Lower', 'Rest', 'Upper', 'Upper', 'Rest'] });
+  const none = s.post({ token: TOKEN, today: '2026-11-15' }, { action: 'skipToday' });
+  assert.deepEqual(none.errors, ['no freeze token to spend']);
+  s.props['GRANT_2026-11-15'] = '1';
+  assert.equal(s.get({ token: TOKEN, today: '2026-11-15' }).canSkip, true);
+  const ok = s.post({ token: TOKEN, today: '2026-11-15' }, { action: 'skipToday' });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  const st = s.get({ token: TOKEN, today: '2026-11-15' });
+  assert.equal(st.blocked, false);
+  assert.equal(st.skipped, true);
+  assert.equal(s.post({ token: TOKEN, today: '2026-11-15' }, { action: 'skipToday' }).errors[0], 'today is already skipped');
+  assert.equal(s.post({ token: TOKEN, today: '2026-11-18' }, { action: 'skipToday' }).errors[0], 'today is not blocked');
+});

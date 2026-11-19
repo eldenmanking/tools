@@ -14,6 +14,7 @@
 //   POST <url>?token=T  body {"action":"saveGoals","workouts":[{"name":"Upper",
 //                             "rules":[{"type":"section","name":"Push","min":2},...]}]}
 //                             (takes effect tomorrow)
+//   POST <url>?token=T  body {"action":"skipToday"}  (spends a freeze token to unblock today)
 //   POST <url>?token=T  body {"action":"saveAllowlist","packages":["com.a.b",...]}
 //                             (takes effect tomorrow)
 //
@@ -54,7 +55,7 @@ function doGet(e) {
   return handle_(e, function (data, today) {
     var action = (e.parameter.action || 'status');
     if (action === 'status') {
-      return computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist);
+      return computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist, data.tokens);
     }
     if (action === 'schedule') {
       var ws = weekStartOf(today);
@@ -103,6 +104,15 @@ function doPost(e) {
         if (!gv.ok) return { ok: false, errors: gv.errors };
         save_(props, 'GOALS', gv.from, gv.workouts);
         return { ok: true, effectiveFrom: gv.from, workouts: goalsView(goalsFor(settings_().goals, gv.from).current) };
+      }
+      if (body.action === 'skipToday') {
+        var st = computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist, data.tokens);
+        if (!st.canSkip) {
+          return { ok: false, errors: [st.skipped ? 'today is already skipped'
+            : !st.blocked ? 'today is not blocked' : 'no freeze token to spend'] };
+        }
+        save_(props, 'SKIP', today, true);
+        return { ok: true, effectiveFrom: today };
       }
       if (body.action === 'saveAllowlist') {
         var a = validateAllowlist(body.packages, today);
@@ -190,5 +200,5 @@ function readData_() {
     { valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' }).values || [];
   var header = (ex[1] || []).map(cellIso_);
   var s = settings_();
-  return { exercise: parseExercise(header, ex.slice(2)), plan: s.plan, goals: s.goals, allowlist: s.allowlist };
+  return { exercise: parseExercise(header, ex.slice(2)), plan: s.plan, goals: s.goals, allowlist: s.allowlist, tokens: s.tokens };
 }

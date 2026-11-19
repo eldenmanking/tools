@@ -33,7 +33,7 @@ data class WeekDay(
 data class DayEvent(
     val date: String,
     val workout: String,
-    /** "done", "pending" (today, not yet), "frozen" (missed, token spent) or "missed". */
+    /** "done", "pending" (today, not yet), "frozen" (missed, token spent), "skipped" (skipped with a token) or "missed". */
     val event: String,
 )
 
@@ -49,11 +49,18 @@ data class Status(
     val workout: String = "Rest",
     val done: Boolean = false,
     val unknownWorkout: Boolean = false,
+    /** Today was skipped with a freeze token. */
+    val skipped: Boolean = false,
     /** True while other apps must be gated. */
     val blocked: Boolean = false,
+    /** Today can be skipped: it's blocked and a token is left to spend. */
+    val canSkip: Boolean = false,
     val streak: Int = 0,
     val longest: Int = 0,
+    /** Earned freeze tokens. */
     val tokens: Int = 0,
+    /** Tokens granted for today only, spent first. */
+    val todayTokens: Int = 0,
     val goalsProgress: List<GoalProgress> = emptyList(),
     val allowlist: List<String> = emptyList(),
     val pendingAllowlist: PendingAllowlist? = null,
