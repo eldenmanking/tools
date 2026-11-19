@@ -9,7 +9,9 @@ keeps its own.
 goals
 ├── README.md              --- this file
 ├── apps-script            --- backend that reads the gym log sheet and keeps the settings; see its README
+│   ├── .claspignore       --- what clasp uploads: the scripts and the manifest only
 │   ├── appsscript.json    --- manifest: read-only spreadsheet access, web app settings
+│   ├── deploy.sh          --- tests, pushes with clasp and moves the web app to the new version
 │   ├── Code.js            --- web app endpoints (status, schedule, save*), sheet reads, settings storage
 │   ├── Core.js            --- pure rules: schedule and default week, goals, streak, tokens, allowlist
 │   ├── README.md          --- what it reads and stores, rules, deploy steps

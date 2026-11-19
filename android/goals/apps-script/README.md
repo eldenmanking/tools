@@ -59,14 +59,29 @@ Each day is judged by the goals in effect that day, so changing goals never rewr
    manifest. Copy the `/exec` URL.
 6. Test it: open `<url>?token=<TOKEN>` in a browser; you should get JSON.
 
-To update the code later, paste the new files, then Deploy > Manage deployments > edit (pencil) >
-Version: New version > Deploy. That keeps the same `/exec` URL.
+To update the code later, use `deploy.sh` (below), or paste the new files by hand, then Deploy >
+Manage deployments > edit (pencil) > Version: New version > Deploy. Either keeps the same `/exec` URL.
 
 The URL and token together grant access, so keep them out of public places. To rotate the token,
 delete `TOKEN` under Script properties and run `setup` again.
 
 For emulator testing only, set the script property `ALLOW_FAKE_TODAY` to `true`. With it set,
 `&today=2026-11-20` pretends that date is today. Remove the property afterwards.
+
+## Deploy with clasp
+[clasp](https://github.com/google/clasp) uploads the files and updates the deployment from the
+command line. Once:
+
+1. Turn on "Google Apps Script API" at script.google.com/home/usersettings.
+2. `npm install -g @google/clasp`, then `clasp login`. The login token in `~/.clasprc.json` can edit
+   all your Apps Script projects; keep it private.
+3. In this folder, create `.clasp.json` (gitignored) with the project's script id (Project
+   Settings > IDs): `{"scriptId": "<id>", "rootDir": "."}`.
+
+Then `./deploy.sh` runs the tests, pushes `Core.js`, `Code.js` and `appsscript.json` (see
+`.claspignore`), and moves the web app's deployment to a new version, so the URL stays the same. It
+finds the deployment by itself when there is only one; otherwise set `GATE_DEPLOYMENT_ID`. A push
+replaces every file in the project, so keep the code here rather than editing it in the browser.
 
 ## Tests
     node --test 'android/goals/apps-script/tests/*.test.js'   (from the repo root)

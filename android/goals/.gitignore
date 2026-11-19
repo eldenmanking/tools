@@ -4,3 +4,5 @@ local.properties
 .idea/
 *.iml
 .kotlin/
+# clasp project file: names the Apps Script project (keep out of git)
+apps-script/.clasp.json
