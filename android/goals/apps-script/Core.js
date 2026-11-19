@@ -60,11 +60,32 @@ function exerciseKey(name) {
 // The Exercise tab: row 2 holds dates from column D on (newest first, blank
 // spacer columns allowed); column B labels a section on its first row and the
 // label carries down; column C names the exercise; a non-empty cell means that
-// exercise was logged on that date.
+// exercise was logged on that date, one set per entry (see setCount).
 //   headerIsos: ISO date or null for every column of row 2
 //   dataRows:   rows 3.. of the tab as 2D values
-// Returns { iso: { sections: { sectionKey: count }, exercises: { exerciseKey: true } } },
-// counting distinct exercise rows per section.
+// Returns { iso: { sections: { sectionKey: sets }, exercises: { exerciseKey: true } } },
+// counting the sets logged per section.
+// How many sets a logged cell holds: its entries are separated by "," or ";"
+// outside parentheses ("1/2:45(8),45(8);50(6)" is 3), and empty entries don't
+// count. A non-empty cell is at least 1 set.
+function setCount(cell) {
+  var s = String(cell == null ? '' : cell);
+  var depth = 0, sets = 0, entry = false;
+  for (var i = 0; i < s.length; i++) {
+    var ch = s.charAt(i);
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (depth === 0 && (ch === ',' || ch === ';')) {
+      if (entry) sets++;
+      entry = false;
+    } else if (!/\s/.test(ch)) {
+      entry = true;
+    }
+  }
+  if (entry) sets++;
+  return Math.max(sets, s.trim() ? 1 : 0);
+}
+
 function parseExercise(headerIsos, dataRows) {
   var out = {};
   var section = '';
@@ -80,7 +101,7 @@ function parseExercise(headerIsos, dataRows) {
       if (!iso || seen[iso] || norm_(row[c]) === '') continue;
       seen[iso] = true; // two columns with the same date count an exercise once
       var day = out[iso] || (out[iso] = { sections: {}, exercises: {} });
-      day.sections[section] = (day.sections[section] || 0) + 1;
+      day.sections[section] = (day.sections[section] || 0) + setCount(row[c]);
       day.exercises[ex] = true;
     }
   }
@@ -88,7 +109,7 @@ function parseExercise(headerIsos, dataRows) {
 }
 
 // Goal rows: [workout, type, name, min] (workoutRows_ makes them), where
-// type is "Section" (log at least <min> exercises from that Exercise tab
+// type is "Section" (log at least <min> sets from that Exercise tab
 // section) or "Exercise" (log that exercise; <min> is ignored). A workout is
 // done when all its rows are met.
 // Returns { workoutKey: { name, rules: [{ type, name, key, min }] } }.
@@ -408,7 +429,7 @@ function validateGoals(plan, workouts, today) {
         } else if (!rn) {
           errors.push(label + ': a goal needs a name');
         } else if (!(min >= 1 && min === Math.floor(min))) {
-          errors.push(label + ': ' + rn + ' needs a whole number of exercises, 1 or more');
+          errors.push(label + ': ' + rn + ' needs a whole number of sets, 1 or more');
         }
         return { type: type, name: rn, min: min };
       })
@@ -587,7 +608,7 @@ function computeStatus(schedule, goals, exercise, today, allowlist) {
 if (typeof module !== 'undefined') {
   module.exports = {
     addDays: addDays, serialToIso: serialToIso, dayOfWeek: dayOfWeek, weekStartOf: weekStartOf, isIsoDate: isIsoDate,
-    exerciseKey: exerciseKey, workoutParts: workoutParts, workoutGoals: workoutGoals, parseExercise: parseExercise, parseGoals: parseGoals,
+    exerciseKey: exerciseKey, setCount: setCount, workoutParts: workoutParts, workoutGoals: workoutGoals, parseExercise: parseExercise, parseGoals: parseGoals,
     parseSchedule: parseSchedule, parseAllowlist: parseAllowlist, allowlistFor: allowlistFor,
     parseDefaults: parseDefaults, defaultFor: defaultFor, validateDefault: validateDefault,
     validateAllowlist: validateAllowlist,

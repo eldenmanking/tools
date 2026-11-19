@@ -44,6 +44,8 @@ enum class ScheduleMode(val label: String) { Week("This week"), Default("Default
 class DefaultWeekUi(
     val draft: List<String>?,
     val saved: List<String>?,
+    /** The default week in effect today (7 names), to star what changes tomorrow. */
+    val inEffect: List<String>,
     val workouts: List<String>,
     val minGymDays: Int,
     val loading: Boolean,
@@ -104,33 +106,29 @@ private fun ColumnScope.ThisWeek(today: String?, weeks: List<List<WeekDay>>, ind
     val days = weeks.getOrNull(index).orEmpty()
     val draft = edit?.draft?.takeIf { it.size == days.size }
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        if (draft == null && days.all { it.source == null }) {
-            InkText("Nothing is planned for this week. A saved default week fills it from the day after you save.")
-        }
-        if (days.isNotEmpty()) {
-            InkList(
-                modifier = Modifier.weight(1f, fill = false),
-                rows = days.mapIndexed { i, d ->
-                    val w = draft?.get(i) ?: d.workout
-                    val tap = if (edit != null && !d.locked) ({ edit.onPickDay(i) }) else null
-                    @Composable { InkRow(dayHeader(d.date), w, onClick = tap, bold = d.date == today, valueBold = isGymDay(w)) }
-                },
-            )
-        }
-        if (draft == null) {
-            InkText(
-                edit?.notice ?: "Tap a day after today to change it for this week only. Days up to today are locked.",
-                size = 20.sp,
-                bold = edit?.notice != null,
-            )
-        }
+        if (days.isEmpty()) InkText("Loading…")
+        else InkList(
+            modifier = Modifier.weight(1f, fill = false),
+            rows = days.mapIndexed { i, d ->
+                val w = draft?.get(i) ?: d.workout
+                val tap = if (edit != null && !d.locked) ({ edit.onPickDay(i) }) else null
+                // Days that are over are gray; today is bold.
+                val past = today != null && d.date < today
+                @Composable {
+                    InkRow(dayHeader(d.date), starred(w, w != d.workout), onClick = tap, bold = d.date == today,
+                        valueBold = isGymDay(w), color = if (past) Ink.Gray else Ink.Black)
+                }
+            },
+        )
+        if (draft != null && draft != days.map { it.workout }) InkNote("* Not saved yet")
+        else if (draft == null && edit?.notice != null) InkNote(edit.notice, bold = true)
     }
     if (edit != null && draft != null) {
         // The same checks as the server: known workouts, no minimum of gym days for a single week.
         // A locked day keeps its workout even if it was removed since.
         val known = edit.workouts + days.filter { it.locked }.flatMap { workoutParts(it.workout) }
         val problems = defaultWeekErrors(draft, known, minGymDays = 0) + edit.errors
-        InkText(problems.joinToString(" ").ifEmpty { "Only this week changes." }, size = 20.sp, bold = true)
+        if (problems.isNotEmpty()) InkError(problems.joinToString(" "))
         val canSave = problems.isEmpty() && !edit.saving
         InkButton(if (edit.saving) "Saving…" else "Save this week", { if (canSave) edit.onSave() }, Modifier.fillMaxWidth(), filled = canSave)
     }
@@ -169,31 +167,25 @@ private fun weekLabel(index: Int, days: List<WeekDay>): String = when (index) {
 private fun ColumnScope.DefaultWeek(ui: DefaultWeekUi) {
     val draft = ui.draft
     if (draft == null) {
-        InkText(if (ui.loading) "Loading…" else ui.errors.joinToString(" "))
+        if (ui.loading) InkText("Loading…") else InkError(ui.errors.joinToString(" "))
         if (!ui.loading) InkButton("Try again", ui.onRetry, Modifier.fillMaxWidth(), filled = false)
         return
     }
-    // The list and its note take the space left over; Save stays at the bottom.
+    // A star marks a day that differs from the default in effect today: it starts tomorrow.
+    val starred = draft.indices.filter { draft[it] != ui.inEffect.getOrNull(it) }
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         InkList(
             modifier = Modifier.weight(1f, fill = false),
             rows = draft.mapIndexed { i, w ->
-                @Composable { InkRow(weekdayName(i), w, onClick = { ui.onPickDay(i) }, valueBold = isGymDay(w)) }
+                @Composable { InkRow(weekdayName(i), starred(w, i in starred), onClick = { ui.onPickDay(i) }, valueBold = isGymDay(w)) }
             },
         )
-        InkText("Tap a day to change it. Applies from tomorrow to weeks you haven't saved.", size = 20.sp)
+        if (starred.isNotEmpty()) InkNote("* Changes start tomorrow")
     }
-    val problems = defaultWeekErrors(draft, ui.workouts, ui.minGymDays)
     val changed = draft != ui.saved
-    // One line: what's wrong, else the last save, else the gym day count.
-    val gym = draft.count { isGymDay(it) }
-    InkText(
-        ((if (changed) problems else emptyList()) + ui.errors).joinToString(" ").ifEmpty {
-            ui.notice?.takeIf { !changed } ?: "$gym gym ${if (gym == 1) "day" else "days"} a week."
-        },
-        size = 20.sp,
-        bold = true,
-    )
+    val problems = (if (changed) defaultWeekErrors(draft, ui.workouts, ui.minGymDays) else emptyList()) + ui.errors
+    if (problems.isNotEmpty()) InkError(problems.joinToString(" "))
+    else if (ui.notice != null && !changed) InkNote(ui.notice, bold = true)
     val canSave = changed && problems.isEmpty() && !ui.saving
     InkButton(
         if (ui.saving) "Saving…" else "Save default week",
@@ -213,7 +205,6 @@ fun DayPicker(day: Int, workouts: List<String>, current: String, onPick: (String
         mutableStateOf(workoutParts(current).filter { isGymDay(it) }.map { p -> workouts.firstOrNull { it.equals(p, true) } ?: p })
     }
     TabPage(title = weekdayName(day)) {
-        InkText("Pick one or more workouts. All of them count that day.", size = 20.sp)
         Column(Modifier.weight(1f)) {
             InkList(
                 modifier = Modifier.weight(1f, fill = false),

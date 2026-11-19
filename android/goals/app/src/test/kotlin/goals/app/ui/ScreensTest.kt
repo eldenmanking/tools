@@ -107,7 +107,7 @@ class ScreensTest {
     private val savedDefault = listOf("Rest", "Upper", "Lower", "Rest", "Upper", "Lower", "Skate")
 
     private fun editor(draft: List<String>, notice: String? = null) = DefaultWeekUi(
-        draft = draft, saved = savedDefault, workouts = listOf("Upper", "Lower", "Skate"), minGymDays = 4,
+        draft = draft, saved = savedDefault, inEffect = savedDefault, workouts = listOf("Upper", "Lower", "Skate"), minGymDays = 4,
         loading = false, saving = false, errors = emptyList(), notice = notice, onRetry = {}, onPickDay = {}, onSave = {},
     )
 
@@ -157,7 +157,8 @@ class ScreensTest {
                 AllowlistUi(
                     apps = listOf(goals.app.data.AppEntry("Calendar", "com.example.calendar"), goals.app.data.AppEntry("Notes", "com.example.notes"),
                         goals.app.data.AppEntry("Reader", "com.example.reader")),
-                    draft = listOf("com.example.notes", "com.example.reader"), saved = listOf("com.example.notes"), pending = null,
+                    draft = listOf("com.example.notes", "com.example.reader"), saved = listOf("com.example.notes"),
+                    inEffect = listOf("com.example.notes"), pending = null,
                     saving = false, errors = emptyList(), notice = null, onToggle = {}, onSave = {},
                 ),
             ) }

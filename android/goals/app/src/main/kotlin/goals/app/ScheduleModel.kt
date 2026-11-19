@@ -15,6 +15,7 @@ import goals.core.Workout
 import goals.core.editableAllowlist
 import goals.core.editableDefault
 import goals.core.editableGoals
+import goals.core.REST
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -135,12 +136,12 @@ class ScheduleModel(private val client: GateClient, private val scope: Coroutine
 
     fun saveAllowlist() {
         val packages = allowDraft ?: return
-        allowSaver.run(client, ScheduleJson.saveAllowlist(packages), { "Saved. It starts $it." }) { load(); onSaved() }
+        allowSaver.run(client, ScheduleJson.saveAllowlist(packages), { "Saved." }) { load(); onSaved() }
     }
 
     fun saveGoals() {
         val workouts = goalsDraft ?: return
-        goalsSaver.run(client, ScheduleJson.saveGoals(workouts), { "Saved. The new goals start $it." }) { load(); onSaved() }
+        goalsSaver.run(client, ScheduleJson.saveGoals(workouts), { "Saved." }) { load(); onSaved() }
     }
 
     fun editor(): DefaultWeekUi {
@@ -148,6 +149,7 @@ class ScheduleModel(private val client: GateClient, private val scope: Coroutine
         return DefaultWeekUi(
             draft = draft,
             saved = v?.let(::editableDefault),
+            inEffect = v?.defaults?.current?.days ?: List(7) { REST },
             workouts = v?.workouts.orEmpty(),
             minGymDays = v?.minGymDays ?: 4,
             loading = loading,
@@ -157,7 +159,7 @@ class ScheduleModel(private val client: GateClient, private val scope: Coroutine
             onRetry = ::load,
             onPickDay = { picking = PickTarget.Default(it) },
             onSave = {
-                draft?.let { d -> defaultSaver.run(client, ScheduleJson.saveDefault(d), { "Saved. It starts $it." }) { load(); onSaved() } }
+                draft?.let { d -> defaultSaver.run(client, ScheduleJson.saveDefault(d), { "Saved." }) { load(); onSaved() } }
             },
         )
     }

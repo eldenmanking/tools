@@ -25,7 +25,7 @@ fun checkedAt(serverTime: String?, zoneId: String?): String? {
     return try { serverTime?.let { Instant.parse(it).atZone(zone).format(CLOCK) } } catch (e: DateTimeParseException) { null }
 }
 
-/** "1 / 2" for a section goal, "done" or "not yet" for a single exercise. */
+/** "1 / 2" for a section goal; nothing for a single exercise, whose check box says it all. */
 fun progressText(g: GoalProgress): String =
-    if (g.type == "exercise") (if (g.met) "done" else "not yet")
+    if (g.type == "exercise") ""
     else "${g.logged} / ${if (g.min % 1.0 == 0.0) g.min.toInt().toString() else g.min.toString()}"

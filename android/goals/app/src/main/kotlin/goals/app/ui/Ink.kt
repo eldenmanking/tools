@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.sp
 object Ink {
     val Black = Color.Black
     val White = Color.White
+    /** For days that are over. The one gray: e-ink shows a flat mid gray cleanly. */
+    val Gray = Color(0xFF808080)
     val Rule = 3.dp
     val ThinRule = 2.dp
     val Gutter = 24.dp
@@ -185,16 +187,38 @@ fun InkSegments(
     }
 }
 
+/** A validation or load error: white on black, so it can't be mistaken for a note. */
+@Composable
+fun InkError(text: String) {
+    Box(Modifier.fillMaxWidth().background(Ink.Black).padding(horizontal = 16.dp, vertical = 10.dp)) {
+        InkText(text, size = 20.sp, bold = true, color = Ink.White)
+    }
+}
+
+/** A small note under a list, e.g. "* Changes start tomorrow". */
+@Composable
+fun InkNote(text: String, bold: Boolean = false) = InkText(text, size = 20.sp, bold = bold)
+
+/** Marks an item that differs from what's in effect today (see [InkNote] for the footnote). */
+fun starred(text: String, changed: Boolean) = if (changed) "$text *" else text
+
 /** A list row that can be tapped: [label] on the left, [value] in bold on the right. */
 @Composable
-fun InkRow(label: String, value: String, onClick: (() -> Unit)? = null, bold: Boolean = false, valueBold: Boolean = true) {
+fun InkRow(
+    label: String,
+    value: String,
+    onClick: (() -> Unit)? = null,
+    bold: Boolean = false,
+    valueBold: Boolean = true,
+    color: androidx.compose.ui.graphics.Color = Ink.Black,
+) {
     Row(
         modifier = Modifier.fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick) else Modifier)
             .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        InkText(label, size = 22.sp, bold = bold, modifier = Modifier.weight(1f))
-        InkText(value, size = 22.sp, bold = valueBold)
+        InkText(label, size = 22.sp, bold = bold, color = color, modifier = Modifier.weight(1f))
+        InkText(value, size = 22.sp, bold = valueBold, color = color)
     }
 }

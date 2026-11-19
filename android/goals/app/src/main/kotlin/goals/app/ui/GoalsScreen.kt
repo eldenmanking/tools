@@ -30,10 +30,14 @@ import goals.core.goalsErrors
 /** Sections of the Exercise tab offered when adding a goal; any other can be typed. */
 val COMMON_SECTIONS = listOf("Push", "Pull", "Legs", "Core", "Cardio", "Free", "Stretch")
 
-/** The goals editor's state: [draft] is the workouts so far, [saved] what it started from. */
+/**
+ * The goals editor's state: [draft] is the workouts so far, [saved] what it started from and
+ * [inEffect] the goals in effect today, to star what changes tomorrow.
+ */
 class GoalsUi(
     val draft: List<Workout>,
     val saved: List<Workout>,
+    val inEffect: List<Workout>,
     val pendingFrom: String?,
     val saving: Boolean,
     val errors: List<String>,
@@ -56,7 +60,9 @@ fun GoalsScreen(goals: Goals?, message: String?, onRetry: (() -> Unit)?, ui: Goa
             if (onRetry != null) InkButton("Try again", onRetry, Modifier.fillMaxWidth(), filled = false)
             return@TabPage
         }
-        InkText("A workout is done when every goal under it is met in your log. Changes start tomorrow.", size = 20.sp)
+        InkText("A workout is done when each of its targets is met.", size = 20.sp)
+        // A star marks a workout that differs from the one in effect today: it starts tomorrow.
+        val starred = ui?.let { u -> workouts.filter { w -> w !in u.inEffect }.toSet() }.orEmpty()
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             InkList(
                 modifier = Modifier.weight(1f, fill = false),
@@ -68,12 +74,14 @@ fun GoalsScreen(goals: Goals?, message: String?, onRetry: (() -> Unit)?, ui: Goa
                                 .padding(horizontal = 20.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            InkText(w.name.ifBlank { "(no name)" }, size = 24.sp, bold = true)
+                            InkText(starred(w.name.ifBlank { "(no name)" }, w in starred), size = 24.sp, bold = true)
                             w.rules.forEach { InkText(ruleText(it), size = 20.sp) }
                         }
                     }
                 },
             )
+            val removed = ui != null && ui.inEffect.any { o -> workouts.none { it.name.equals(o.name, true) } }
+            if (starred.isNotEmpty() || removed) InkNote("* Changes start tomorrow")
             if (ui != null) InkButton("Add workout", ui.onAdd, Modifier.fillMaxWidth(), filled = false)
         }
         if (ui == null) {
@@ -82,15 +90,8 @@ fun GoalsScreen(goals: Goals?, message: String?, onRetry: (() -> Unit)?, ui: Goa
         }
         val changed = ui.draft != ui.saved
         val problems = (if (changed) goalsErrors(ui.draft) else emptyList()) + ui.errors
-        val line = problems.joinToString(" ").ifEmpty {
-            when {
-                changed -> "Tap a workout to change it."
-                ui.notice != null -> ui.notice
-                ui.pendingFrom != null -> "Changed goals start ${dayHeader(ui.pendingFrom)}."
-                else -> "Tap a workout to change it."
-            }
-        }
-        InkText(line, size = 20.sp, bold = problems.isNotEmpty() || ui.notice != null)
+        if (problems.isNotEmpty()) InkError(problems.joinToString(" "))
+        else if (ui.notice != null && !changed) InkNote(ui.notice, bold = true)
         val canSave = changed && problems.isEmpty() && !ui.saving
         InkButton(if (ui.saving) "Saving…" else "Save goals", { if (canSave) ui.onSave() }, Modifier.fillMaxWidth(), filled = canSave)
     }
@@ -106,7 +107,6 @@ fun WorkoutEditor(workout: Workout, onChange: (Workout) -> Unit, onAddGoal: () -
         InkLabel("Workout name")
         InkField(workout.name, { onChange(workout.copy(name = it)) })
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (workout.rules.isEmpty()) InkText("No goals yet.", size = 20.sp)
             InkList(
                 modifier = Modifier.weight(1f, fill = false),
                 rows = workout.rules.mapIndexed { i, r ->
@@ -130,6 +130,13 @@ fun WorkoutEditor(workout: Workout, onChange: (Workout) -> Unit, onAddGoal: () -
             )
             InkButton("Add goal", onAddGoal, Modifier.fillMaxWidth(), filled = false)
         }
+        // This workout's own problems, here where they can be fixed.
+        val problems = listOfNotNull(
+            "Needs a name.".takeIf { workout.name.isBlank() },
+            "Names can't use \"+\".".takeIf { '+' in workout.name },
+            "Needs at least one goal.".takeIf { workout.rules.isEmpty() },
+        )
+        if (problems.isNotEmpty()) InkError(problems.joinToString(" "))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             InkButton("Delete", onDelete, Modifier.weight(1f), filled = false)
             InkButton("Done", onDone, Modifier.weight(1f))
@@ -142,7 +149,7 @@ fun WorkoutEditor(workout: Workout, onChange: (Workout) -> Unit, onAddGoal: () -
 fun AddGoal(onAdd: (GoalRule) -> Unit, onCancel: () -> Unit) {
     var name by remember { mutableStateOf("") }
     TabPage("Add goal") {
-        InkText("A section goal counts exercises logged in that section of your sheet.", size = 20.sp)
+        InkText("A section goal counts the sets logged in that section of your sheet.", size = 20.sp)
         Column(Modifier.weight(1f)) {
             InkList(
                 modifier = Modifier.weight(1f, fill = false),
@@ -186,4 +193,4 @@ private fun SmallButton(text: String, onClick: () -> Unit) {
 /** "Push: 2 or more exercises", "Figure skating logged". */
 fun ruleText(r: GoalRule): String =
     if (r.type == "exercise") "${r.name} logged"
-    else "${r.name}: ${if (r.min % 1.0 == 0.0) r.min.toInt() else r.min} or more exercises"
+    else "${r.name}: ${if (r.min % 1.0 == 0.0) r.min.toInt() else r.min} or more sets"

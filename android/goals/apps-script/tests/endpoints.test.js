@@ -191,7 +191,7 @@ test('saveGoals refuses bad goals and removing a planned workout', () => {
     '"Rest" is reserved for rest days',
     '"upper" is listed twice',
     'Yoga: unknown goal type "category"',
-    'Run: Cardio needs a whole number of exercises, 1 or more',
+    'Run: Cardio needs a whole number of sets, 1 or more',
     'Swim: needs at least one goal',
   ]);
   assert.deepEqual(settingKeys(s), ['DEFAULT_2026-11-15', 'GOALS_2026-01-01']);

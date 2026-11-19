@@ -373,3 +373,15 @@ test('combined workouts: names can not use "+", and a planned part can not be re
   assert.match(r.errors.join(), /"A\+B": "\+" joins workouts/);
   assert.match(r.errors.join(), /"Skate" is still planned on 2026-11-22/);
 });
+
+test('setCount: entries separated by , or ; outside parentheses', () => {
+  assert.equal(C.setCount('1/2:45(8)'), 1);
+  assert.equal(C.setCount('1/2:45(8),45(8);50(6)'), 3);
+  assert.equal(C.setCount('45(8,9);50(6)'), 2);   // a comma inside parentheses is part of one set
+  assert.equal(C.setCount('8, 8, '), 2);           // empty entries don't count
+  assert.equal(C.setCount(12), 1);
+  assert.equal(C.setCount(''), 0);
+  const header = [null, null, null, '2026-11-13'];
+  const rows = [['', 'Push', 'Bench', '45(8),45(8),50(6)'], ['', '', 'Dips', '10;10']];
+  assert.equal(C.parseExercise(header, rows)['2026-11-13'].sections.push, 5);
+});

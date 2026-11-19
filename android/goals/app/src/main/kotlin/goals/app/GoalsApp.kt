@@ -190,6 +190,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                             GoalsUi(
                                 draft = draft,
                                 saved = editableGoals(v),
+                                inEffect = v.goals.current,
                                 pendingFrom = v.goals.pending?.from,
                                 saving = schedule.goalsSaver.saving,
                                 errors = schedule.goalsSaver.errors,
@@ -221,6 +222,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                             apps = apps,
                             draft = draft,
                             saved = editableAllowlist(v),
+                            inEffect = v.allowlist.current,
                             pending = v.allowlist.pending,
                             saving = schedule.allowSaver.saving,
                             errors = schedule.allowSaver.errors,
@@ -234,6 +236,8 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                     } else {
                         null
                     },
+                    loading = schedule != null && schedule.view == null && schedule.loadError == null,
+                    loadError = schedule?.loadError,
                 )
             }
         }

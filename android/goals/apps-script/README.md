@@ -23,7 +23,8 @@ properties), one per dated entry, each a JSON array:
 - `DEFAULT_<date>`: the default week from that date.
 - `GOALS_<date>`: the workouts from that date. Each workout is done when every one of its goals
   is met. There are two goal types, and one workout can mix both:
-  - `section`: log at least *min* exercises from that section of `Exercise` that day.
+  - `section`: log at least *min* sets from that section of `Exercise` that day. A cell holds one
+    entry per set, separated by `,` or `;` outside parentheses, so `45(8),45(8);50(6)` is 3 sets.
     Example: Upper = Push 2, Pull 2, Core 1.
   - `exercise`: log that one exercise. The name leaves out its `[unit]` and `(...)` suffixes, and
     *min* is ignored. Example: Skate = Figure skating.
