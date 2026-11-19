@@ -100,7 +100,8 @@ class ScreensTest {
 
     @Test
     fun schedule() = paparazzi.snapshot {
-        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked, ScheduleMode.Week, {}, editor = null) }
+        val next = locked.week.map { it.copy(date = java.time.LocalDate.parse(it.date).plusDays(7).toString(), locked = false) }
+        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked, ScheduleMode.Week, {}, editor = null, weeks = listOf(locked.week, next), week = 1) }
     }
 
     private val savedDefault = listOf("Rest", "Upper", "Lower", "Rest", "Upper", "Lower", "Skate")
@@ -123,7 +124,7 @@ class ScreensTest {
 
     @Test
     fun dayPicker() = paparazzi.snapshot {
-        AppFrame(Tab.Schedule, {}) { DayPicker(1, listOf("Upper", "Lower", "Skate"), "Upper", {}, {}) }
+        AppFrame(Tab.Schedule, {}) { DayPicker(0, listOf("Upper", "Lower", "Skate"), "Upper + Skate", {}, {}) }
     }
 
     @Test

@@ -8,6 +8,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.style.TextAlign
+import goals.core.WeekDay
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import goals.core.joinWorkouts
+import goals.core.workoutParts
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,13 +57,24 @@ class DefaultWeekUi(
     val onSave: () -> Unit,
 )
 
-/** The Schedule tab: this week's plan (read-only), or the default week editor. */
+/**
+ * The Schedule tab: a week's plan (read-only), or the default week editor. [weeks] are the weeks
+ * that can be shown (this week, then next); [week] is the one showing.
+ */
 @Composable
-fun ScheduleScreen(status: Status?, mode: ScheduleMode, onMode: (ScheduleMode) -> Unit, editor: DefaultWeekUi?) {
+fun ScheduleScreen(
+    status: Status?,
+    mode: ScheduleMode,
+    onMode: (ScheduleMode) -> Unit,
+    editor: DefaultWeekUi?,
+    weeks: List<List<WeekDay>> = listOfNotNull(status?.week),
+    week: Int = 0,
+    onWeek: (Int) -> Unit = {},
+) {
     TabPage(title = null) {
         InkSegments(ScheduleMode.entries.map { it.label }, mode.ordinal, { onMode(ScheduleMode.entries[it]) })
         when (mode) {
-            ScheduleMode.Week -> ThisWeek(status)
+            ScheduleMode.Week -> ThisWeek(status?.today, weeks, week.coerceIn(0, maxOf(0, weeks.size - 1)), onWeek)
             ScheduleMode.Default -> if (editor == null) {
                 InkText("Add gate.url and gate.token to local.properties to edit the schedule.")
             } else {
@@ -59,18 +85,50 @@ fun ScheduleScreen(status: Status?, mode: ScheduleMode, onMode: (ScheduleMode) -
 }
 
 @Composable
-private fun ColumnScope.ThisWeek(status: Status?) {
-    if (status == null || status.week.all { it.source == null }) {
-        InkText("Nothing is planned yet. Set a default week to start.")
-        return
+private fun ColumnScope.ThisWeek(today: String?, weeks: List<List<WeekDay>>, index: Int, onWeek: (Int) -> Unit) {
+    val days = weeks.getOrNull(index).orEmpty()
+    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        if (days.all { it.source == null }) {
+            InkText("Nothing is planned for this week. A saved default week fills it from the day after you save.")
+        } else {
+            InkList(
+                modifier = Modifier.weight(1f, fill = false),
+                rows = days.map { d ->
+                    @Composable { InkRow(dayHeader(d.date), d.workout, bold = d.date == today, valueBold = isGymDay(d.workout)) }
+                },
+            )
+            InkText("Days up to today are locked. A week you haven't saved follows the default week.", size = 20.sp)
+        }
     }
-    InkList(
-        modifier = Modifier.weight(1f, fill = false),
-        rows = status.week.map { d ->
-            @Composable { InkRow(dayHeader(d.date), d.workout, bold = d.date == status.today, valueBold = isGymDay(d.workout)) }
-        },
-    )
-    InkText("Days up to today are locked. Editing a single week comes in a later step.", size = 20.sp)
+    if (weeks.size > 1) WeekArrows(index, weeks.size, weekLabel(index, days), onWeek)
+}
+
+/** ◀ label ▶ for stepping through [count] weeks; an arrow with nowhere to go is left blank. */
+@Composable
+private fun WeekArrows(index: Int, count: Int, label: String, onWeek: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Arrow("◀", index > 0) { onWeek(index - 1) }
+        InkText(label, size = 22.sp, bold = true, align = TextAlign.Center, modifier = Modifier.weight(1f))
+        Arrow("▶", index < count - 1) { onWeek(index + 1) }
+    }
+}
+
+@Composable
+private fun Arrow(text: String, enabled: Boolean, onClick: () -> Unit) {
+    val m = Modifier.size(64.dp)
+    Box(
+        if (enabled) m.border(Ink.Rule, Ink.Black).clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick) else m,
+        contentAlignment = Alignment.Center,
+    ) {
+        if (enabled) InkText(text, size = 26.sp, bold = true)
+    }
+}
+
+/** "This week", "Next week", or the week's dates. */
+private fun weekLabel(index: Int, days: List<WeekDay>): String = when (index) {
+    0 -> "This week"
+    1 -> "Next week"
+    else -> days.firstOrNull()?.let { "Week of ${dayHeader(it.date)}" } ?: ""
 }
 
 @Composable
@@ -111,21 +169,48 @@ private fun ColumnScope.DefaultWeek(ui: DefaultWeekUi) {
     )
 }
 
-/** Full-page choice of a workout for one day: Rest, then [workouts]; the [current] one is checked. */
+/**
+ * Full-page choice of one day's plan: Rest, or one or more of [workouts] (checked boxes, done when
+ * every one is met). [current] is the plan so far; Done hands back the new one.
+ */
 @Composable
 fun DayPicker(day: Int, workouts: List<String>, current: String, onPick: (String) -> Unit, onCancel: () -> Unit) {
+    var chosen by remember(day, current) {
+        mutableStateOf(workoutParts(current).filter { isGymDay(it) }.map { p -> workouts.firstOrNull { it.equals(p, true) } ?: p })
+    }
     TabPage(title = weekdayName(day)) {
-        InkText("Default week", size = 20.sp)
-        val options = listOf(REST) + workouts
+        InkText("Pick one or more workouts. All of them count that day.", size = 20.sp)
         Column(Modifier.weight(1f)) {
             InkList(
                 modifier = Modifier.weight(1f, fill = false),
-                rows = options.map { w ->
-                    @Composable { InkRow(w, if (w.equals(current, ignoreCase = true)) "✓" else "", onClick = { onPick(w) }, bold = isGymDay(w)) }
-                },
+                rows = listOf<@Composable () -> Unit>({ PickRow(REST, chosen.isEmpty(), bold = false) { chosen = emptyList() } }) +
+                    workouts.map { w ->
+                        @Composable {
+                            val on = chosen.any { it.equals(w, true) }
+                            // Keep the order of [workouts], so the same days read the same.
+                            PickRow(w, on, bold = true) { chosen = workouts.filter { o -> if (o == w) !on else chosen.any { it.equals(o, true) } } }
+                        }
+                    },
             )
         }
-        InkButton("Cancel", onCancel, Modifier.fillMaxWidth(), filled = false)
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            InkButton("Cancel", onCancel, Modifier.weight(1f), filled = false)
+            InkButton("Done", { onPick(joinWorkouts(chosen)) }, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun PickRow(label: String, checked: Boolean, bold: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clickable(interactionSource = null, indication = null, role = Role.Checkbox, onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        InkCheck(checked, size = 28.dp)
+        InkText(label, size = 22.sp, bold = bold)
     }
 }
 

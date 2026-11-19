@@ -54,6 +54,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     var error by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf(Tab.Status) }
     var scheduleMode by rememberSaveable { mutableStateOf(ScheduleMode.Week) }
+    var weekShown by rememberSaveable { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
 
     val fetch: (RefreshTrigger) -> Unit = { trigger ->
@@ -127,7 +128,9 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                     BackHandler { schedule.picking = null }
                     DayPicker(picking, schedule.view?.workouts.orEmpty(), draft[picking], { schedule.pick(picking, it) }, { schedule.picking = null })
                 } else {
-                    ScheduleScreen(status, scheduleMode, { scheduleMode = it }, schedule?.editor())
+                    // The schedule has this week and next; until it loads, the status has this week.
+                    val weeks = schedule?.view?.weeks?.map { it.days }?.takeIf { it.isNotEmpty() } ?: listOfNotNull(status?.week)
+                    ScheduleScreen(status, scheduleMode, { scheduleMode = it }, schedule?.editor(), weeks, weekShown, { weekShown = it })
                 }
             }
             Tab.Goals -> {

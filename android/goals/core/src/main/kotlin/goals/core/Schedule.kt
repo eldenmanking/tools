@@ -121,10 +121,17 @@ fun editableDefault(view: ScheduleView): List<String> =
  * Why [days] (7 names, Sunday first) can't be saved as the default week, the same checks the
  * server makes: enough gym days, and every gym day one of [workouts].
  */
+/** The workouts of one day's plan: "Upper + Skate" -> [Upper, Skate] (workoutParts in Core.js). */
+fun workoutParts(name: String): List<String> = name.split('+').map { it.trim() }.filter { it.isNotEmpty() }
+
+/** One day's plan from the chosen [parts]: "Upper + Skate", or Rest when none. */
+fun joinWorkouts(parts: List<String>): String = parts.joinToString(" + ").ifEmpty { REST }
+
 fun defaultWeekErrors(days: List<String>, workouts: List<String>, minGymDays: Int): List<String> {
     val errors = mutableListOf<String>()
     if (days.size != 7) return listOf("a week has 7 days")
-    days.filter { isGymDay(it) && workouts.none { w -> w.equals(it, ignoreCase = true) } }.distinct()
+    days.filter { isGymDay(it) }.flatMap(::workoutParts)
+        .filter { p -> workouts.none { it.equals(p, ignoreCase = true) } }.distinct()
         .forEach { errors.add("\"$it\" isn't one of your workouts") }
     val gym = days.count { isGymDay(it) }
     if (gym < minGymDays) errors.add("At least $minGymDays gym days needed; this has $gym.")

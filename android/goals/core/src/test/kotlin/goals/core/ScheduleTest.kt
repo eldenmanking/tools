@@ -42,6 +42,17 @@ class ScheduleTest {
     }
 
     @Test
+    fun combinedWorkouts() {
+        assertEquals(listOf("Upper", "Skate"), workoutParts(" Upper+ Skate "))
+        assertEquals("Upper + Skate", joinWorkouts(listOf("Upper", "Skate")))
+        assertEquals(REST, joinWorkouts(emptyList()))
+        val workouts = listOf("Upper", "Lower", "Skate")
+        assertEquals(emptyList(), defaultWeekErrors(listOf("Upper + Skate", "Upper", "Lower", "Rest", "Upper", "Rest", "Rest"), workouts, 4))
+        assertEquals(listOf("\"Yoga\" isn't one of your workouts"),
+            defaultWeekErrors(listOf("Upper + Yoga", "Upper", "Lower", "Rest", "Upper", "Rest", "Rest"), workouts, 4))
+    }
+
+    @Test
     fun defaultWeekChecks() {
         val workouts = listOf("Upper", "Lower", "Skate")
         assertEquals(emptyList(), defaultWeekErrors(listOf("Rest", "Upper", "lower", "Rest", "Upper", "Lower", "Rest"), workouts, 4))
