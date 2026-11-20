@@ -39,6 +39,7 @@ function loadScript({ sheets = {}, timeZone = 'America/New_York', props = {} } =
     return ss;
   };
   const store = { ...props };
+  let uuids = 0;
   const ctx = {
     console,
     Sheets: {
@@ -75,7 +76,7 @@ function loadScript({ sheets = {}, timeZone = 'America/New_York', props = {} } =
       // Signed bytes, as Apps Script returns them.
       computeHmacSha256Signature: (value, key) =>
         Array.from(crypto.createHmac('sha256', key).update(value).digest()).map((b) => (b > 127 ? b - 256 : b)),
-      getUuid: () => 'test-token-0000',
+      getUuid: () => 'test-token-' + uuids++,
     },
     PropertiesService: {
       getScriptProperties: () => ({

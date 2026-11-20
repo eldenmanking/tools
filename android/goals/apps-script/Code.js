@@ -7,11 +7,12 @@
 //   GET  <url>?token=T                    -> status JSON (see computeStatus)
 //   GET  <url>?token=T&action=schedule    -> this week and next with locks, the
 //                                            default week, goals and allowlist
-//   GET  <url>?token=T&action=page        -> a page for a phone's browser: today's
+//   GET  <url>?token=P&action=page        -> a page for a phone's browser: today's
 //                                            status, the unlock code once nothing
 //                                            is left to gate today, and skipping
 //                                            today with a token (&skip=ask, then
-//                                            &skip=<today>)
+//                                            &skip=<today>). P is PAGE_TOKEN, not
+//                                            TOKEN, and works for nothing else.
 //   POST <url>?token=T  body {"action":"saveSchedule","weekStart":"2026-11-22",
 //                             "days":["Rest","Upper","Lower",...]}  (Sunday first)
 //   POST <url>?token=T  body {"action":"saveDefault","days":["Rest","Upper",...]}
@@ -24,7 +25,9 @@
 //                             (takes effect tomorrow)
 //
 // Script properties set by hand: SHEET_ID (the gym log spreadsheet) and, for
-// testing only, ALLOW_FAKE_TODAY. setup() creates TOKEN.
+// testing only, ALLOW_FAKE_TODAY. setup() creates TOKEN (the app's: every action,
+// and the key for unlock codes) and PAGE_TOKEN (the phone page's, so TOKEN never
+// sits in a phone's history or bookmarks).
 //
 // "Today" and the time of day are always the server's, in the spreadsheet's time
 // zone. Only when ALLOW_FAKE_TODAY is "true" do ?today=yyyy-mm-dd and ?now=HH:MM
@@ -45,15 +48,17 @@ var SEED_GOALS_ = [
 ];
 
 // Run once from the editor after setting SHEET_ID: checks the sheet, creates
-// a secret token and the first goals, then logs the token (View > Logs).
+// the secret tokens and the first goals, then logs the tokens (View > Logs).
 function setup() {
   var props = PropertiesService.getScriptProperties();
   if (book_().tabs.indexOf(EXERCISE_TAB) < 0) throw new Error('the sheet has no ' + EXERCISE_TAB + ' tab');
   if (!props.getProperty('TOKEN')) props.setProperty('TOKEN', Utilities.getUuid());
+  if (!props.getProperty('PAGE_TOKEN')) props.setProperty('PAGE_TOKEN', Utilities.getUuid());
   if (!parseSettings(props.getProperties()).goals.length) {
     props.setProperty(settingKey('GOALS', todayIso_()), JSON.stringify(SEED_GOALS_));
   }
   Logger.log('TOKEN=' + props.getProperty('TOKEN'));
+  Logger.log('PAGE_TOKEN=' + props.getProperty('PAGE_TOKEN'));
 }
 
 function doGet(e) {
@@ -135,8 +140,11 @@ function skipToday_(props, data, today) {
   return { ok: true, effectiveFrom: today };
 }
 
-function authorized_(e) {
-  var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
+function authorized_(e, name) {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty(name || 'TOKEN');
+  // A page token equal to the app's would hand out the app's key in the page's links.
+  if (name === 'PAGE_TOKEN' && token === props.getProperty('TOKEN')) return false;
   return !!token && !!e && !!e.parameter && e.parameter.token === token;
 }
 
@@ -211,7 +219,7 @@ function esc_(s) {
 // It changes nothing unless &skip names today's date, which only its own
 // confirm link does.
 function page_(e) {
-  if (!authorized_(e)) return HtmlService.createHtmlOutput('<p>Unauthorized.</p>');
+  if (!authorized_(e, 'PAGE_TOKEN')) return HtmlService.createHtmlOutput('<p>Unauthorized.</p>');
   var body;
   try {
     var c = clock_(e), props = PropertiesService.getScriptProperties();

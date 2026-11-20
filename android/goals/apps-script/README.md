@@ -67,7 +67,7 @@ Each day is judged by the goals in effect that day, so changing goals never rewr
 3. Project Settings > Script properties: add `SHEET_ID`, the id from the gym log's URL
    (`docs.google.com/spreadsheets/d/<SHEET_ID>/edit`).
 4. Pick `setup` in the function menu, then Run. Grant access; the consent screen should ask only
-   to *see* your spreadsheets. Copy the `TOKEN=...` line from the execution log. `setup` also saves
+   to *see* your spreadsheets. Copy the `TOKEN=...` and `PAGE_TOKEN=...` lines from the execution log. `setup` also saves
    starting goals (Upper, Lower, Skate) for the app to change.
 5. Deploy > New deployment > Web app. "Execute as" Me and "Who has access" Anyone come from the
    manifest. Copy the `/exec` URL.
@@ -76,19 +76,22 @@ Each day is judged by the goals in effect that day, so changing goals never rewr
 To update the code later, use `deploy.sh` (below), or paste the new files by hand, then Deploy >
 Manage deployments > edit (pencil) > Version: New version > Deploy. Either keeps the same `/exec` URL.
 
-The URL and token together grant access, so keep them out of public places. To rotate the token,
-delete `TOKEN` under Script properties and run `setup` again.
+The URL and `TOKEN` together grant every action and are the key for unlock codes, so keep them on
+the tablet and out of public places. `PAGE_TOKEN` opens only the phone page (below), so a leaked
+bookmark shows today's status and code and can skip today, but can't change anything else or work
+out other days' codes. To rotate either, delete it under Script properties and run `setup` again
+(a new `TOKEN` also needs a rebuilt app).
 
 For emulator testing only, set the script property `ALLOW_FAKE_TODAY` to `true`. With it set,
 `&today=2026-11-20` pretends that date is today (from midnight) and `&now=18:30` that time. Remove
 the property afterwards.
 
 ## The phone page
-`<url>?token=<TOKEN>&action=page` is a page for a phone's browser (bookmark it): today's workouts
+`<url>?token=<PAGE_TOKEN>&action=page` is a page for a phone's browser (bookmark it): today's workouts
 with their windows and progress, the streak and tokens, and:
 - once nothing is left to gate today (done, skipped or a rest day), a 6-digit unlock code. The
-  tablet's gate takes it without a connection: it is the HMAC-SHA256 of `open:<date>` keyed by the
-  token, truncated as in HOTP, so the app works it out itself. It opens that day only.
+  tablet's gate takes it without a connection: it is the HMAC-SHA256 of `open:<date>` keyed by
+  `TOKEN`, truncated as in HOTP, so the app works it out itself. It opens that day only.
 - while today can be skipped, "Skip today with a token", then a confirm link carrying today's date;
   only that link spends the token.
 

@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const { loadScript, dateCell, SHEET_ID_FOR_TESTS } = require('./gas.js');
 
 const TOKEN = 't0k';
+const PAGE = 'p4ge';
 const TZ = 'America/New_York';
 
 function exerciseTab() {
@@ -43,7 +44,7 @@ function setup(props = {}) {
   const s = loadScript({
     sheets: { Exercise: exerciseTab() },
     timeZone: TZ,
-    props: { SHEET_ID: SHEET_ID_FOR_TESTS, TOKEN, ALLOW_FAKE_TODAY: 'true', 'GOALS_2026-01-01': JSON.stringify(GOALS), ...props },
+    props: { SHEET_ID: SHEET_ID_FOR_TESTS, TOKEN, PAGE_TOKEN: PAGE, ALLOW_FAKE_TODAY: 'true', 'GOALS_2026-01-01': JSON.stringify(GOALS), ...props },
   });
   s.ctx.setup();
   return s;
@@ -51,11 +52,14 @@ function setup(props = {}) {
 
 const settingKeys = (s) => Object.keys(s.props).filter((k) => /_\d{4}-\d{2}-\d{2}$/.test(k)).sort();
 
-test('setup keeps an existing token, seeds goals once and adds no tabs', () => {
+test('setup keeps an existing token, adds a separate page token, seeds goals once and adds no tabs', () => {
   const s = loadScript({ sheets: { Exercise: exerciseTab() }, timeZone: TZ, props: { SHEET_ID: SHEET_ID_FOR_TESTS, TOKEN } });
   s.ctx.setup();
+  const page = s.props.PAGE_TOKEN;
   s.ctx.setup();
   assert.equal(s.props.TOKEN, TOKEN);
+  assert.ok(page && page !== TOKEN);
+  assert.equal(s.props.PAGE_TOKEN, page);
   const goals = settingKeys(s);
   assert.equal(goals.length, 1);
   assert.match(goals[0], /^GOALS_/);
@@ -75,6 +79,21 @@ test('a wrong or missing token is refused', () => {
   assert.deepEqual(s.get({ token: 'nope' }), { error: 'unauthorized' });
   assert.deepEqual(s.get({}), { error: 'unauthorized' });
   assert.deepEqual(s.post({ token: 'nope' }, { action: 'saveDefault' }), { error: 'unauthorized' });
+});
+
+test('the page token opens only the page, and the app token not the page', () => {
+  const s = setup();
+  assert.deepEqual(s.get({ token: PAGE }), { error: 'unauthorized' });
+  assert.deepEqual(s.get({ token: PAGE, action: 'schedule' }), { error: 'unauthorized' });
+  assert.deepEqual(s.post({ token: PAGE }, { action: 'skipToday' }), { error: 'unauthorized' });
+  assert.match(s.page({ token: TOKEN }), /Unauthorized/);
+  assert.doesNotMatch(s.page({ token: PAGE }), /Unauthorized/);
+  assert.doesNotMatch(s.page({ token: PAGE }), new RegExp(TOKEN));
+  // Not when it's missing or the same as the app's.
+  assert.match(setup({ PAGE_TOKEN: TOKEN }).page({ token: TOKEN }), /Unauthorized/);
+  const none = setup();
+  delete none.props.PAGE_TOKEN;
+  assert.match(none.page({ token: PAGE }), /Unauthorized/);
 });
 
 test('status reads the Exercise tab: sections, exercise goals, time zone', () => {
@@ -246,26 +265,26 @@ test('status uses the time of day: &now with ALLOW_FAKE_TODAY', () => {
   assert.match(r.errors.join(), /"Skate" starts within an hour/);
 });
 
-test('page: needs the token; shows the code once nothing is left to gate; skips only with its own link', () => {
+test('page: needs the page token; shows the code once nothing is left to gate; skips only with its own link', () => {
   const s = setup();
   assert.match(s.page({ token: 'nope' }), /Unauthorized/);
   s.post({ token: TOKEN, today: '2026-11-14' },
     { action: 'saveDefault', days: ['Upper', 'Upper', 'Lower', 'Rest', 'Upper', 'Upper', 'Rest'] });
   // 2026-11-17 (Tuesday, Lower): Legs 0 of 3, not done. No code, no skip without a token.
-  const pending = s.page({ token: TOKEN, today: '2026-11-17' });
+  const pending = s.page({ token: PAGE, today: '2026-11-17' });
   assert.match(pending, /Not done yet\./);
   assert.doesNotMatch(pending, /Unlock code/);
   assert.doesNotMatch(pending, /Skip today/);
   // With a token for the day: an "ask" link, then a confirm link naming the date.
   s.props['GRANT_2026-11-17'] = '1';
-  assert.match(s.page({ token: TOKEN, today: '2026-11-17' }), /skip=ask/);
-  const ask = s.page({ token: TOKEN, today: '2026-11-17', skip: 'ask' });
+  assert.match(s.page({ token: PAGE, today: '2026-11-17' }), /skip=ask/);
+  const ask = s.page({ token: PAGE, today: '2026-11-17', skip: 'ask' });
   assert.match(ask, /skip=2026-11-17/);
   assert.equal(s.props['SKIP_2026-11-17'], undefined);
   // A stale confirm link for another day does nothing.
-  s.page({ token: TOKEN, today: '2026-11-17', skip: '2026-11-16' });
+  s.page({ token: PAGE, today: '2026-11-17', skip: '2026-11-16' });
   assert.equal(s.props['SKIP_2026-11-17'], undefined);
-  const skipped = s.page({ token: TOKEN, today: '2026-11-17', skip: '2026-11-17' });
+  const skipped = s.page({ token: PAGE, today: '2026-11-17', skip: '2026-11-17' });
   assert.equal(s.props['SKIP_2026-11-17'], 'true');
   assert.match(skipped, /Today is skipped with a token\./);
   // The code: HMAC-SHA256 of "open:<day>" keyed by the token, as the app computes it.
@@ -274,5 +293,5 @@ test('page: needs the token; shows the code once nothing is left to gate; skips 
   const code = C.unlockCodeFrom(Array.from(crypto.createHmac('sha256', TOKEN).update('open:2026-11-17').digest()));
   assert.match(skipped, new RegExp(code.slice(0, 3) + ' ' + code.slice(3)));
   // Names are escaped.
-  assert.doesNotMatch(s.page({ token: TOKEN, today: '2026-11-17' }), /<script/);
+  assert.doesNotMatch(s.page({ token: PAGE, today: '2026-11-17' }), /<script/);
 });

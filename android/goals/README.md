@@ -140,8 +140,8 @@ What the tablet's own framework does (from a decompiled `services.jar` of firmwa
 8. A 2-minute allowance while gated. Done: it runs by the wall clock (screen off too) and can be
    used again an hour after it was started. When it runs out the gate comes back over whatever is
    in front; audio playing in the background keeps playing.
-9. Unlock code for when the tablet is offline. Done: bookmark `<gate.url>?token=<gate.token>&action=page`
-   on a phone; it shows today's status, a 6-digit code once today is done or skipped, and a link to
+9. Unlock code for when the tablet is offline. Done: bookmark `<gate.url>?token=<PAGE_TOKEN>&action=page`
+   on a phone (its own token, so the app's never sits in the phone's history); it shows today's status, a 6-digit code once today is done or skipped, and a link to
    skip today with a token. Type the code on the gate ("Enter code").
 
 ## Building
