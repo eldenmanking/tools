@@ -34,20 +34,21 @@ fun CodeScreen(message: String?, onSubmit: (String) -> Unit, onCancel: () -> Uni
     var code by remember { mutableStateOf("") }
     Column(
         modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding().padding(Ink.Gutter),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         InkText("Unlock code", size = 44.sp, bold = true)
-        InkText("No connection? Open the gate's page on your phone. Once today is done or skipped it shows a code.", size = 20.sp)
+        InkText("No connection? Once today is done or skipped, the gate's page on your phone shows a code.", size = 20.sp)
         InkText(
             (0 until 6).joinToString(" ") { code.getOrNull(it)?.toString() ?: "_" },
             size = 44.sp, bold = true, align = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
         )
-        if (message != null) InkError(message)
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // The message always has its room, so the keys never move under a finger.
+        Box(Modifier.fillMaxWidth().height(56.dp)) { if (message != null) InkError(message) }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf("123", "456", "789", " 0<").forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { k ->
-                        val m = Modifier.weight(1f).height(72.dp)
+                        val m = Modifier.weight(1f).height(64.dp)
                         when (k) {
                             ' ' -> Box(m)
                             '<' -> Key("⌫", m) { code = code.dropLast(1) }
@@ -61,7 +62,7 @@ fun CodeScreen(message: String?, onSubmit: (String) -> Unit, onCancel: () -> Uni
             }
         }
         Box(Modifier.weight(1f))
-        InkButton("Cancel", onCancel, Modifier.fillMaxWidth(), filled = false)
+        InkButton("Cancel", onCancel, Modifier.fillMaxWidth(), filled = false, height = 64.dp)
     }
 }
 
