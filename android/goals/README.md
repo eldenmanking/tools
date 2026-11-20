@@ -122,6 +122,14 @@ What the tablet's own framework does (from a decompiled `services.jar` of firmwa
    combine workouts; the goals editor; the allowlist picker (launchable apps, labels only).
 6. On the device: check that the background service survives (exempt the app from battery
    optimization), then polish for e-ink.
+7. Gated time windows instead of whole days: a day holds one or more goals, each gated only in its
+   own window (e.g. a workout in the morning, a stretch at night), so missing one doesn't lock the
+   rest of the day. A window can be changed until an hour before it starts (instead of midnight
+   the night before). The Schedule tab lists all of a day's goals, comma separated. The UI is still
+   open.
+8. A 2-minute allowance while gated: pressing it starts a timer that keeps running even if the
+   screen is switched off, and refreshes an hour after it was used. When it runs out, the gate
+   comes back; an app may keep playing in the background (music, audio) but its screen is hidden.
 
 ## Building
 Open this folder (`android/goals`) in Android Studio, or run:
