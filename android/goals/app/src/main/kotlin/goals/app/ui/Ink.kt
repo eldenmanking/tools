@@ -1,0 +1,226 @@
+package goals.app.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+/**
+ * The e-ink kit: black on white only (grays dither and ghost), 3 dp rules, large type,
+ * selected or done shown as a solid black block. Built on Compose foundation, not Material,
+ * so nothing ripples or animates; clickables pass `indication = null`.
+ */
+object Ink {
+    val Black = Color.Black
+    val White = Color.White
+    /** For days that are over. The one gray: e-ink shows a flat mid gray cleanly. */
+    val Gray = Color(0xFF808080)
+    val Rule = 3.dp
+    val ThinRule = 2.dp
+    val Gutter = 24.dp
+}
+
+@Composable
+fun InkText(
+    text: String,
+    modifier: Modifier = Modifier,
+    size: TextUnit = 24.sp,
+    bold: Boolean = false,
+    color: Color = Ink.Black,
+    align: TextAlign = TextAlign.Start,
+) {
+    BasicText(
+        text = text,
+        modifier = modifier,
+        style = TextStyle(
+            color = color,
+            fontSize = size,
+            lineHeight = size * 1.3f,
+            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+            fontFamily = FontFamily.SansSerif,
+            textAlign = align,
+        ),
+    )
+}
+
+/** Small caps-style label, e.g. "TUESDAY, NOV 17". */
+@Composable
+fun InkLabel(text: String, modifier: Modifier = Modifier) {
+    BasicText(
+        text = text.uppercase(),
+        modifier = modifier,
+        style = TextStyle(
+            color = Ink.Black,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.6.sp,
+            fontFamily = FontFamily.SansSerif,
+        ),
+    )
+}
+
+/** A full-width button: filled (primary) or outlined. */
+@Composable
+fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, filled: Boolean = true, height: Dp = 80.dp, size: TextUnit = 28.sp) {
+    val shape = if (filled) Modifier.background(Ink.Black) else Modifier.border(Ink.Rule, Ink.Black)
+    Box(
+        modifier = modifier
+            .height(height)
+            .then(shape)
+            .clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        InkText(text, size = size, bold = true, color = if (filled) Ink.White else Ink.Black)
+    }
+}
+
+/** A square check box: empty outline, or a black block with a white check. */
+@Composable
+fun InkCheck(checked: Boolean, size: Dp = 32.dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .then(if (checked) Modifier.background(Ink.Black) else Modifier.border(Ink.Rule, Ink.Black)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (checked) CheckMark(size * 0.7f, Ink.White)
+    }
+}
+
+@Composable
+fun CheckMark(size: Dp, color: Color) {
+    Canvas(Modifier.size(size)) {
+        val w = size.toPx()
+        val path = Path().apply {
+            moveTo(w * 0.17f, w * 0.5f)
+            lineTo(w * 0.42f, w * 0.75f)
+            lineTo(w * 0.83f, w * 0.25f)
+        }
+        drawPath(path, color, style = Stroke(width = w * 0.17f, cap = StrokeCap.Square))
+    }
+}
+
+/** A bordered number with a caption, e.g. "12 / day streak". */
+@Composable
+fun StatBox(value: String, label: String, modifier: Modifier = Modifier, suffix: String? = null) {
+    Column(
+        modifier = modifier.border(Ink.Rule, Ink.Black).padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            InkText(value, size = 44.sp, bold = true)
+            if (suffix != null) InkText(suffix, size = 24.sp, modifier = Modifier.padding(bottom = 5.dp))
+        }
+        InkText(label, size = 20.sp)
+    }
+}
+
+/**
+ * A bordered list; rows are separated by thin rules. When [modifier] limits its height (e.g.
+ * `weight(1f, fill = false)`), the rows scroll inside the border.
+ */
+@Composable
+fun InkList(rows: List<@Composable () -> Unit>, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().border(Ink.Rule, Ink.Black).padding(Ink.Rule).verticalScroll(rememberScrollState())) {
+        rows.forEachIndexed { i, row ->
+            if (i > 0) Box(Modifier.fillMaxWidth().height(Ink.ThinRule).background(Ink.Black))
+            row()
+        }
+    }
+}
+
+/**
+ * A row of equal cells, one per label; the selected one is a solid black block. [framed] draws a
+ * border around the row (a switch inside a page) rather than leaving it to the caller (the tab bar).
+ */
+@Composable
+fun InkSegments(
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 56.dp,
+    framed: Boolean = true,
+) {
+    Row(modifier.fillMaxWidth().height(height).then(if (framed) Modifier.border(Ink.Rule, Ink.Black) else Modifier)) {
+        labels.forEachIndexed { i, label ->
+            if (i > 0) Box(Modifier.width(Ink.ThinRule).fillMaxHeight().background(Ink.Black))
+            val on = i == selected
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight()
+                    .then(if (on) Modifier.background(Ink.Black) else Modifier)
+                    .clickable(interactionSource = null, indication = null, role = Role.Tab) { onSelect(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                InkText(label, size = 20.sp, bold = true, color = if (on) Ink.White else Ink.Black)
+            }
+        }
+    }
+}
+
+/** A validation or load error: white on black, so it can't be mistaken for a note. */
+@Composable
+fun InkError(text: String) {
+    Box(Modifier.fillMaxWidth().background(Ink.Black).padding(horizontal = 16.dp, vertical = 10.dp)) {
+        InkText(text, size = 20.sp, bold = true, color = Ink.White)
+    }
+}
+
+/** A small note under a list, e.g. "* Changes start tomorrow". */
+@Composable
+fun InkNote(text: String, bold: Boolean = false) = InkText(text, size = 20.sp, bold = bold)
+
+/** Marks an item that differs from what's in effect today (see [InkNote] for the footnote). */
+fun starred(text: String, changed: Boolean) = if (changed) "$text *" else text
+
+/** A list row that can be tapped: [label] on the left, [value] in bold on the right. */
+@Composable
+fun InkRow(
+    label: String,
+    value: String,
+    onClick: (() -> Unit)? = null,
+    bold: Boolean = false,
+    valueBold: Boolean = true,
+    color: androidx.compose.ui.graphics.Color = Ink.Black,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick) else Modifier)
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // The label keeps its width; a long value wraps in what is left.
+        InkText(label, size = 22.sp, bold = bold, color = color)
+        InkText(value, size = 22.sp, bold = valueBold, color = color, align = TextAlign.End,
+            modifier = Modifier.weight(1f).padding(start = 16.dp))
+    }
+}

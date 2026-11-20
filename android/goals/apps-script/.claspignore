@@ -1,0 +1,5 @@
+# clasp pushes only the script and its manifest; tests and docs stay local.
+**/**
+!Core.js
+!Code.js
+!appsscript.json
