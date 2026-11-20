@@ -12,8 +12,8 @@ goals
 │   ├── .claspignore       --- what clasp uploads: the scripts and the manifest only
 │   ├── appsscript.json    --- manifest: read-only spreadsheet access, web app settings
 │   ├── deploy.sh          --- tests, pushes with clasp and moves the web app to the new version
-│   ├── Code.js            --- web app endpoints (status, schedule, save*), sheet reads, settings storage
-│   ├── Core.js            --- pure rules: schedule and default week, goals, streak, tokens, allowlist
+│   ├── Code.js            --- web app endpoints (status, schedule, save*, the phone page), sheet reads, settings
+│   ├── Core.js            --- pure rules: schedule, windows and locks, goals, streak, tokens, allowlist, unlock code
 │   ├── README.md          --- what it reads and stores, rules, deploy steps
 │   └── tests              --- Node tests: rules with fake dates, endpoints on a fake Apps Script runtime
 ├── app                    --- the Android app (Compose foundation, no Material)
@@ -22,12 +22,13 @@ goals
 │   │   ├── GoalsApp.kt        --- picks the gate or home screen, runs "Check again"
 │   │   ├── MainActivity.kt    --- the app's own screen: setup checklist, then home or gate
 │   │   ├── Permissions.kt     --- the permissions the gate needs and their settings screens
-│   │   ├── data               --- status cache (a file both processes read) and status sources
+│   │   ├── data               --- status and unlock files (both processes read them) and status sources
 │   │   ├── ui                 --- e-ink kit (Ink.kt) and the screens from the mocks
 │   │   └── watch              --- WatchService (the :watch process) and BootReceiver
 │   └── src/test               --- Paparazzi screenshot tests; snapshots/ holds the recorded PNGs
-├── core                   --- plain Kotlin, no Android SDK: status JSON, gate decision, week strip,
-│                              foreground app, refresh timing, notification text
+├── core                   --- plain Kotlin, no Android SDK: status JSON, gate decision with windows,
+│                              allowance and unlock code, week strip, foreground app, refresh timing,
+│                              notification text
 ├── build.gradle.kts, settings.gradle.kts, gradle.properties, gradlew, gradle/
 └── .gitignore
 ```
@@ -38,16 +39,26 @@ goals
    uses the server's date for today.
    - Each workout (e.g. Upper, Lower, Skate) needs a minimum number of exercises from chosen
      sections (Push, Pull, Core, ...), a specific exercise, or both.
-   - It returns `{todayScheduled, workout, done, blocked, streak, longest, tokens, goalsProgress,
-     allowlist, week, history, timeZone}`.
-   - It saves weekly schedules, rejecting changes to locked days, and a default week (at least 4
-     gym days) that fills unsaved weeks from the next day on.
+   - Each workout gates only in its window (e.g. 06:00–10:00; all day without one), and a day's
+     plan can give a workout its own window. The day is done when every workout is.
+   - It returns `{todayScheduled, workout, done, open, blocked, sessions, streak, longest, tokens,
+     goalsProgress, allowlist, week, history, timeZone}`; `sessions` are today's workouts with
+     their windows and goals.
+   - It saves weekly schedules, where a workout can change until an hour before its window, and a
+     default week (at least 4 gym days) that fills unsaved weeks from the next day on.
+   - It serves a page for a phone's browser: today's status, an unlock code once nothing is left to
+     gate, and skipping today with a token.
    - It saves goals and allowlists, which take effect the next day.
    - Access needs a secret token in the URL, so the app needs no Google sign-in.
 2. **Android app** (Kotlin and Jetpack Compose; `core` holds the logic, `app` the UI).
-   - A foreground service watches the foreground app with UsageStatsManager. When the status says
-     `blocked` and an app outside the allowlist opens, it shows a full-screen gate. The app itself,
-     the launcher and system settings are always allowed.
+   - A foreground service watches the foreground app with UsageStatsManager. While a workout that
+     isn't done is in its window and an app outside the allowlist opens, it shows a full-screen
+     gate. It judges the time itself from the cached status, so windows open and close offline. The
+     app itself, the launcher and system settings are always allowed.
+   - The gate offers 2 minutes open, once an hour (by the wall clock, so it runs out with the
+     screen off too), and an unlock code: the phone page shows it once today is done or skipped,
+     and the tablet checks it without a connection (HMAC of the date with the token; 5 wrong
+     codes, then 15 minutes' wait).
    - The gate shows the streak, tokens, today's goals and progress, and a "Check again" button.
    - A persistent notification shows the streak, tokens and today's status. It is redrawn only
      when something changes.
@@ -122,14 +133,16 @@ What the tablet's own framework does (from a decompiled `services.jar` of firmwa
    combine workouts; the goals editor; the allowlist picker (launchable apps, labels only).
 6. On the device: check that the background service survives (exempt the app from battery
    optimization), then polish for e-ink.
-7. Gated time windows instead of whole days: a day holds one or more goals, each gated only in its
-   own window (e.g. a workout in the morning, a stretch at night), so missing one doesn't lock the
-   rest of the day. A window can be changed until an hour before it starts (instead of midnight
-   the night before). The Schedule tab lists all of a day's goals, comma separated. The UI is still
-   open.
-8. A 2-minute allowance while gated: pressing it starts a timer that keeps running even if the
-   screen is switched off, and refreshes an hour after it was used. When it runs out, the gate
-   comes back; an app may keep playing in the background (music, audio) but its screen is hidden.
+7. Gated time windows instead of whole days. Done: each workout has a window in the Goals tab
+   (all day without one) and a day can set its own in the day picker; missing one window doesn't
+   lock the rest of the day. A workout can change until an hour before its window. The Schedule
+   tab lists a day's workouts comma separated, with their windows.
+8. A 2-minute allowance while gated. Done: it runs by the wall clock (screen off too) and can be
+   used again an hour after it was started. When it runs out the gate comes back over whatever is
+   in front; audio playing in the background keeps playing.
+9. Unlock code for when the tablet is offline. Done: bookmark `<gate.url>?token=<gate.token>&action=page`
+   on a phone; it shows today's status, a 6-digit code once today is done or skipped, and a link to
+   skip today with a token. Type the code on the gate ("Enter code").
 
 ## Building
 Open this folder (`android/goals`) in Android Studio, or run:

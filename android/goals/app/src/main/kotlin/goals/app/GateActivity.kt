@@ -7,6 +7,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import goals.app.data.StatusSources
 import goals.app.data.StatusStore
+import goals.app.data.UnlockStore
 
 /**
  * Full-screen gate shown over a gated app. Back goes to the launcher, never to the app
@@ -19,7 +20,7 @@ class GateActivity : ComponentActivity() {
             override fun handleOnBackPressed() = goHome()
         })
         val store = StatusStore(this)
-        setContent { GoalsApp(store, StatusSources.default, onOpen = { finish() }) }
+        setContent { GoalsApp(store, UnlockStore(this), StatusSources.default, onOpen = { finish() }) }
     }
 
     private fun goHome() {

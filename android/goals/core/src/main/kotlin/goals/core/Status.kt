@@ -37,6 +37,20 @@ data class DayEvent(
     val event: String,
 )
 
+/** One workout of today's plan with its window and goals (computeStatus sessions in Core.js). */
+@Serializable
+data class Session(
+    val workout: String,
+    /** "HH:MM" in the sheet's time zone. */
+    val start: String = "00:00",
+    /** "HH:MM"; "24:00" is midnight at the end of the day. */
+    val end: String = "24:00",
+    val done: Boolean = false,
+    val goalsProgress: List<GoalProgress> = emptyList(),
+) {
+    val window: Window get() = Window(minuteOf(start) ?: 0, minuteOf(end) ?: MINUTES_PER_DAY)
+}
+
 @Serializable
 data class PendingAllowlist(val from: String, val packages: List<String>)
 
@@ -51,8 +65,12 @@ data class Status(
     val unknownWorkout: Boolean = false,
     /** Today was skipped with a freeze token. */
     val skipped: Boolean = false,
-    /** True while other apps must be gated. */
+    /** Gated when the server answered. The app judges the time itself from [sessions] (see [gatedSession]). */
     val blocked: Boolean = false,
+    /** Nothing is left to gate today: a rest day, done, or skipped. */
+    val open: Boolean = false,
+    /** Today's workouts, each with its window, in plan order. Empty from servers before windows. */
+    val sessions: List<Session> = emptyList(),
     /** Today can be skipped: it's blocked and a token is left to spend. */
     val canSkip: Boolean = false,
     val streak: Int = 0,
@@ -71,6 +89,17 @@ data class Status(
     /** The spreadsheet's time zone (IANA id). */
     val timeZone: String? = null,
 )
+
+/** The workout gating apps at [minute] (minutes past midnight in the sheet's time zone), if any. */
+fun Status.gatedSession(minute: Int): Session? =
+    if (skipped || open) null else sessions.firstOrNull { !it.done && minute in it.window }
+
+/** Whether apps are gated at [minute]: in the window of a workout not done yet. */
+fun Status.gatedAt(minute: Int): Boolean = if (sessions.isEmpty()) blocked else gatedSession(minute) != null
+
+/** The next workout not done yet whose window starts after [minute], if any. */
+fun Status.nextSession(minute: Int): Session? =
+    if (skipped || open) null else sessions.filter { !it.done && it.window.start > minute }.minByOrNull { it.window.start }
 
 /** Either a status or the server's (or parser's) error message. */
 sealed interface StatusResult {

@@ -26,6 +26,7 @@ import goals.core.GoalRule
 import goals.core.Goals
 import goals.core.Workout
 import goals.core.goalsErrors
+import goals.core.windowText
 
 /** Sections of the Exercise tab offered when adding a goal; any other can be typed. */
 val COMMON_SECTIONS = listOf("Push", "Pull", "Legs", "Core", "Cardio", "Free", "Stretch")
@@ -76,6 +77,7 @@ fun GoalsScreen(goals: Goals?, message: String?, onRetry: (() -> Unit)?, ui: Goa
                         ) {
                             InkText(starred(w.name.ifBlank { "(no name)" }, w in starred), size = 24.sp, bold = true)
                             w.rules.forEach { InkText(ruleText(it), size = 20.sp) }
+                            InkText("Locks apps ${windowText(w.gated)}", size = 20.sp, color = Ink.Gray)
                         }
                     }
                 },
@@ -98,14 +100,23 @@ fun GoalsScreen(goals: Goals?, message: String?, onRetry: (() -> Unit)?, ui: Goa
 }
 
 /**
- * One workout: its name and goals. Section goals take − and + for how many exercises; × removes
- * a goal. [onAddGoal] opens the page for adding one; [onDone] goes back to the list.
+ * One workout: its name, when it locks apps and its goals. Section goals take − and + for how
+ * many sets; × removes a goal. [onWindow] and [onAddGoal] open the pages for changing the window
+ * and adding a goal; [onDone] goes back to the list.
  */
 @Composable
-fun WorkoutEditor(workout: Workout, onChange: (Workout) -> Unit, onAddGoal: () -> Unit, onDelete: () -> Unit, onDone: () -> Unit) {
+fun WorkoutEditor(
+    workout: Workout,
+    onChange: (Workout) -> Unit,
+    onAddGoal: () -> Unit,
+    onDelete: () -> Unit,
+    onDone: () -> Unit,
+    onWindow: () -> Unit = {},
+) {
     TabPage(title = null) {
         InkLabel("Workout name")
         InkField(workout.name, { onChange(workout.copy(name = it)) })
+        InkList(rows = listOf(@Composable { InkRow("Locks apps", windowText(workout.gated), onClick = onWindow, bold = true) }))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             InkList(
                 modifier = Modifier.weight(1f, fill = false),
@@ -134,6 +145,7 @@ fun WorkoutEditor(workout: Workout, onChange: (Workout) -> Unit, onAddGoal: () -
         val problems = listOfNotNull(
             "Needs a name.".takeIf { workout.name.isBlank() },
             "Names can't use \"+\".".takeIf { '+' in workout.name },
+            "Names can't use \"@\".".takeIf { '@' in workout.name },
             "Needs at least one goal.".takeIf { workout.rules.isEmpty() },
         )
         if (problems.isNotEmpty()) InkError(problems.joinToString(" "))
@@ -180,7 +192,7 @@ fun InkField(value: String, onChange: (String) -> Unit) {
 }
 
 @Composable
-private fun SmallButton(text: String, onClick: () -> Unit) {
+fun SmallButton(text: String, onClick: () -> Unit) {
     Box(
         Modifier.size(48.dp).border(Ink.ThinRule, Ink.Black)
             .clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick),

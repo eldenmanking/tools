@@ -15,6 +15,7 @@ import goals.core.Workout
 import goals.core.editableAllowlist
 import goals.core.editableDefault
 import goals.core.editableGoals
+import goals.core.windowsOn
 import goals.core.REST
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -151,6 +152,7 @@ class ScheduleModel(private val client: GateClient, private val scope: Coroutine
             saved = v?.let(::editableDefault),
             inEffect = v?.defaults?.current?.days ?: List(7) { REST },
             workouts = v?.workouts.orEmpty(),
+            windowOf = v?.let { windowsOn(it, java.time.LocalDate.parse(it.today).plusDays(1).toString()) } ?: { null },
             minGymDays = v?.minGymDays ?: 4,
             loading = loading,
             saving = defaultSaver.saving,

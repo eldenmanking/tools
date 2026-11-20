@@ -7,6 +7,11 @@
 //   GET  <url>?token=T                    -> status JSON (see computeStatus)
 //   GET  <url>?token=T&action=schedule    -> this week and next with locks, the
 //                                            default week, goals and allowlist
+//   GET  <url>?token=T&action=page        -> a page for a phone's browser: today's
+//                                            status, the unlock code once nothing
+//                                            is left to gate today, and skipping
+//                                            today with a token (&skip=ask, then
+//                                            &skip=<today>)
 //   POST <url>?token=T  body {"action":"saveSchedule","weekStart":"2026-11-22",
 //                             "days":["Rest","Upper","Lower",...]}  (Sunday first)
 //   POST <url>?token=T  body {"action":"saveDefault","days":["Rest","Upper",...]}
@@ -21,9 +26,9 @@
 // Script properties set by hand: SHEET_ID (the gym log spreadsheet) and, for
 // testing only, ALLOW_FAKE_TODAY. setup() creates TOKEN.
 //
-// "Today" is always the server's date in the spreadsheet's time zone. Only when
-// ALLOW_FAKE_TODAY is "true" does ?today=yyyy-mm-dd override it (for emulator
-// testing); leave it unset otherwise.
+// "Today" and the time of day are always the server's, in the spreadsheet's time
+// zone. Only when ALLOW_FAKE_TODAY is "true" do ?today=yyyy-mm-dd and ?now=HH:MM
+// override them (for testing); leave it unset otherwise.
 
 var EXERCISE_TAB = 'Exercise';
 
@@ -52,10 +57,11 @@ function setup() {
 }
 
 function doGet(e) {
-  return handle_(e, function (data, today) {
+  if (e && e.parameter && e.parameter.action === 'page') return page_(e);
+  return handle_(e, function (data, today, nowMin) {
     var action = (e.parameter.action || 'status');
     if (action === 'status') {
-      return computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist, data.tokens);
+      return computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist, data.tokens, nowMin);
     }
     if (action === 'schedule') {
       var ws = weekStartOf(today);
@@ -82,19 +88,18 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    return handle_(e, function (data, today) {
+    return handle_(e, function (data, today, nowMin) {
       var props = PropertiesService.getScriptProperties();
       var body = JSON.parse((e.postData && e.postData.contents) || '{}');
       var tomorrow = addDays(today, 1);
       if (body.action === 'saveSchedule') {
-        var goals = goalsFor(data.goals, tomorrow).current;
-        var v = validateSave(data.plan, goals, body.weekStart, body.days, today);
+        var v = validateSave(data.plan, data.goals, body.weekStart, body.days, today, nowMin);
         if (!v.ok) return { ok: false, errors: v.errors };
         save_(props, 'WEEK', body.weekStart, v.rows.map(function (r) { return r[1]; }));
         return { ok: true, week: weekView(settings_().plan, body.weekStart, today) };
       }
       if (body.action === 'saveDefault') {
-        var dv = validateDefault(goalsFor(data.goals, tomorrow).current, body.days, today);
+        var dv = validateDefault(goalsFor(data.goals, tomorrow).current, body.days, today, nowMin);
         if (!dv.ok) return { ok: false, errors: dv.errors };
         save_(props, 'DEFAULT', dv.row[0], dv.row.slice(1));
         return { ok: true, effectiveFrom: dv.row[0], default: defaultFor(settings_().plan.defaults, today) };
@@ -105,15 +110,7 @@ function doPost(e) {
         save_(props, 'GOALS', gv.from, gv.workouts);
         return { ok: true, effectiveFrom: gv.from, workouts: goalsView(goalsFor(settings_().goals, gv.from).current) };
       }
-      if (body.action === 'skipToday') {
-        var st = computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist, data.tokens);
-        if (!st.canSkip) {
-          return { ok: false, errors: [st.skipped ? 'today is already skipped'
-            : !st.blocked ? 'today is not blocked' : 'no freeze token to spend'] };
-        }
-        save_(props, 'SKIP', today, true);
-        return { ok: true, effectiveFrom: today };
-      }
+      if (body.action === 'skipToday') return skipToday_(props, data, today);
       if (body.action === 'saveAllowlist') {
         var a = validateAllowlist(body.packages, today);
         if (!a.ok) return { ok: false, errors: a.errors };
@@ -127,19 +124,49 @@ function doPost(e) {
   }
 }
 
+// Spends a freeze token on today, if it is still gated and one is left.
+function skipToday_(props, data, today) {
+  var st = computeStatus(data.plan, data.goals, data.exercise, today, data.allowlist, data.tokens);
+  if (!st.canSkip) {
+    return { ok: false, errors: [st.skipped ? 'today is already skipped'
+      : st.open ? 'nothing is left to gate today' : 'no freeze token to spend'] };
+  }
+  save_(props, 'SKIP', today, true);
+  return { ok: true, effectiveFrom: today };
+}
+
+function authorized_(e) {
+  var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
+  return !!token && !!e && !!e.parameter && e.parameter.token === token;
+}
+
+// { today, nowMin }: the server's date and minutes since midnight, or the
+// test overrides (see ALLOW_FAKE_TODAY).
+function clock_(e) {
+  var props = PropertiesService.getScriptProperties();
+  var now = new Date();
+  var today = Utilities.formatDate(now, tz_(), 'yyyy-MM-dd');
+  var hm = Utilities.formatDate(now, tz_(), 'HH:mm').split(':');
+  var nowMin = +hm[0] * 60 + +hm[1];
+  if (props.getProperty('ALLOW_FAKE_TODAY') === 'true') {
+    if (isIsoDate(e.parameter.today)) {
+      today = e.parameter.today;
+      nowMin = 0; // a faked day starts at midnight unless &now says otherwise
+    }
+    var m = /^(\d{2}):(\d{2})$/.exec(e.parameter.now || '');
+    if (m) nowMin = +m[1] * 60 + +m[2];
+  }
+  return { today: today, nowMin: nowMin };
+}
+
 function handle_(e, fn) {
   var out;
-  var props = PropertiesService.getScriptProperties();
-  var token = props.getProperty('TOKEN');
-  if (!token || !e || !e.parameter || e.parameter.token !== token) {
+  if (!authorized_(e)) {
     out = { error: 'unauthorized' };
   } else {
     try {
-      var today = todayIso_();
-      if (props.getProperty('ALLOW_FAKE_TODAY') === 'true' && isIsoDate(e.parameter.today)) {
-        today = e.parameter.today;
-      }
-      out = fn(readData_(), today);
+      var c = clock_(e);
+      out = fn(readData_(), c.today, c.nowMin);
       out.serverTime = new Date().toISOString();
       out.timeZone = tz_();
     } catch (err) {
@@ -169,6 +196,85 @@ function book_() {
 
 function tz_() {
   return book_().timeZone;
+}
+
+// ---- the phone page --------------------------------------------------------
+
+var WEEKDAY_NAMES_ = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+var MONTH_NAMES_ = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function esc_(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// The page a phone opens (action=page): status, the unlock code and skipping.
+// It changes nothing unless &skip names today's date, which only its own
+// confirm link does.
+function page_(e) {
+  if (!authorized_(e)) return HtmlService.createHtmlOutput('<p>Unauthorized.</p>');
+  var body;
+  try {
+    var c = clock_(e), props = PropertiesService.getScriptProperties();
+    var note = '';
+    if (e.parameter.skip === c.today) {
+      var lock = LockService.getScriptLock();
+      lock.waitLock(10000);
+      try {
+        var r = skipToday_(props, readData_(), c.today);
+        note = r.ok ? 'Today is skipped with a token.' : 'Not skipped: ' + r.errors.join(' ');
+      } finally {
+        lock.releaseLock();
+      }
+    }
+    var data = readData_();
+    var st = computeStatus(data.plan, data.goals, data.exercise, c.today, data.allowlist, data.tokens, c.nowMin);
+    var link = ScriptApp.getService().getUrl() + '?token=' + encodeURIComponent(e.parameter.token) + '&action=page';
+    var fake = props.getProperty('ALLOW_FAKE_TODAY') !== 'true' ? '' : ['today', 'now'].map(function (k) {
+      return e.parameter[k] ? '&' + k + '=' + encodeURIComponent(e.parameter[k]) : '';
+    }).join('');
+    body = pageBody_(st, link + fake, e.parameter.skip === 'ask', note,
+      st.open ? unlockCodeFrom(Utilities.computeHmacSha256Signature(unlockMessage(c.today), props.getProperty('TOKEN'))) : null);
+  } catch (err) {
+    body = '<p>Error: ' + esc_(err) + '</p>';
+  }
+  return HtmlService.createHtmlOutput('<!doctype html><style>' +
+    'body{font:18px/1.4 -apple-system,sans-serif;margin:24px;color:#000;background:#fff}' +
+    'h1{font-size:28px;margin:0 0 4px}.day{text-transform:uppercase;letter-spacing:.05em;font-size:14px}' +
+    '.code{font:700 44px ui-monospace,monospace;letter-spacing:.15em;margin:4px 0}' +
+    'a.b{display:block;border:2px solid #000;padding:12px;margin:12px 0;text-align:center;color:#000;text-decoration:none;font-weight:700}' +
+    'ul{padding-left:20px}.done{color:#555}</style>' + body)
+    .setTitle('Gym gate').addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function pageBody_(st, link, asking, note, code) {
+  var p = st.today.split('-');
+  var date = WEEKDAY_NAMES_[dayOfWeek(st.today)] + ', ' + MONTH_NAMES_[+p[1] - 1] + ' ' + (+p[2]);
+  var title = !st.todayScheduled ? 'Rest day.' : st.done ? 'Done for today.' : st.skipped ? 'Skipped.' : 'Not done yet.';
+  var h = '<div class="day">' + esc_(date) + '</div><h1>' + title + '</h1>';
+  if (note) h += '<p><b>' + esc_(note) + '</b></p>';
+  if (st.sessions.length) {
+    h += '<ul>' + st.sessions.map(function (s) {
+      var when = s.start === '00:00' && s.end === '24:00' ? 'all day' : s.start + '–' + s.end;
+      var goals = s.goalsProgress.map(function (g) {
+        return esc_(g.name) + (g.type === 'exercise' ? (g.met ? ' ✓' : '') : ' ' + g.logged + '/' + g.min);
+      }).join(', ');
+      return '<li class="' + (s.done ? 'done' : '') + '"><b>' + esc_(s.workout) + '</b> · ' + when +
+        (s.done ? ' · done' : '') + '<br>' + goals + '</li>';
+    }).join('') + '</ul>';
+  }
+  h += '<p>Streak ' + st.streak + ' · Tokens ' + st.tokens + ' of ' + MAX_TOKENS +
+    (st.todayTokens ? ' (+' + st.todayTokens + ' today)' : '') + '</p>';
+  if (code) {
+    h += '<p>Unlock code for the tablet when it can\'t connect:</p><div class="code">' +
+      code.slice(0, 3) + ' ' + code.slice(3) + '</div>';
+  }
+  if (st.canSkip) {
+    h += asking
+      ? '<a class="b" target="_top" href="' + esc_(link + '&skip=' + st.today) + '">Tap to spend a token on today</a>' +
+        '<a class="b" target="_top" href="' + esc_(link) + '">Cancel</a>'
+      : '<a class="b" target="_top" href="' + esc_(link + '&skip=ask') + '">Skip today with a token</a>';
+  }
+  return h + '<a class="b" target="_top" href="' + esc_(link) + '">Refresh</a>';
 }
 
 function todayIso_() {

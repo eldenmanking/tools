@@ -108,7 +108,7 @@ test('validateSave: minimum gym days, known workouts, Sunday start', () => {
   assert.equal(C.validateSave({}, GOALS, '2026-11-02', Array(7).fill('Push'), today).ok, false);
 });
 
-test('validateSave: today and earlier are locked, tomorrow is editable', () => {
+test('validateSave: earlier days are over; today\'s all-day workouts are locked, tomorrow is editable', () => {
   const s = C.parseSchedule(week(SUN, ['Rest', 'Push', 'Pull', 'Rest', 'Push', 'Pull', 'Rest']));
   const today = '2026-11-03'; // Tuesday (Pull)
   // Changing Wednesday (tomorrow) is allowed.
@@ -116,15 +116,15 @@ test('validateSave: today and earlier are locked, tomorrow is editable', () => {
   assert.equal(fine.ok, true, fine.errors.join());
   // Changing today is not.
   const same = C.validateSave(s, GOALS, SUN, ['Rest', 'Push', 'Rest', 'Push', 'Push', 'Pull', 'Rest'], today);
-  assert.match(same.errors.join(), /2026-11-03 is locked/);
+  assert.match(same.errors.join(), /2026-11-03: "Pull" starts within an hour/);
   // Changing a past day is not.
   const past = C.validateSave(s, GOALS, SUN, ['Push', 'Push', 'Pull', 'Rest', 'Push', 'Pull', 'Rest'], today);
-  assert.match(past.errors.join(), /2026-11-01 is locked/);
-  // Locks compare against the copied schedule too: next-next week's Sunday is
-  // editable, but this week's copy of last week is locked.
+  assert.match(past.errors.join(), /2026-11-01 is over/);
+  // Locks compare against the copied schedule too: this week's copy of last
+  // week's Sunday (Rest) can't gain an all-day workout today.
   const s3 = C.parseSchedule(week('2026-10-25', ['Rest', 'Push', 'Pull', 'Rest', 'Push', 'Pull', 'Rest']));
   const copied = C.validateSave(s3, GOALS, SUN, ['Push', 'Push', 'Pull', 'Rest', 'Push', 'Pull', 'Rest'], '2026-11-01');
-  assert.match(copied.errors.join(), /2026-11-01 is locked \(was "Rest"\)/);
+  assert.match(copied.errors.join(), /2026-11-01: "Push" would start within an hour/);
 });
 
 test('computeStatus: rest day is not blocked; today unmet is pending, not a miss', () => {
@@ -234,10 +234,10 @@ test('defaults: an unsaved week follows the default; a saved week overrides it',
   assert.equal(C.workoutFor(plan, '2026-11-14'), 'Rest');    // saved week, Saturday
   assert.equal(C.workoutFor(plan, '2026-11-16'), 'Upper');   // back to the default
   assert.equal(C.workoutFor(plan, '2026-10-31'), null);      // before anything
-  const v = C.weekView(plan, '2026-11-15', '2026-11-15');
+  const v = C.weekView(plan, '2026-11-15', '2026-11-16');
   assert.deepEqual(v.days.map((d) => d.source), Array(7).fill('default'));
-  assert.equal(v.days[0].locked, true);
-  assert.equal(v.days[1].locked, false);
+  assert.equal(v.days[0].locked, true); // over
+  assert.equal(v.days[1].locked, false); // today: each workout locks on its own
 });
 
 test('defaults: a new default starts tomorrow and never changes today or earlier', () => {
@@ -271,7 +271,7 @@ test('defaults: same checks as a week (4 gym days, known workouts)', () => {
 test('defaults: saving a week still locks days that came from the default', () => {
   const plan = { days: {}, defaults: C.parseDefaults([DEFAULT_ROW]) };
   const r = C.validateSave(plan, GOALS, '2026-11-15', ['Rest', 'Rest', 'Upper', 'Upper', 'Upper', 'Upper', 'Rest'], '2026-11-16');
-  assert.match(r.errors.join(), /2026-11-16 is locked \(was "Upper"\)/);
+  assert.match(r.errors.join(), /2026-11-16: "Upper" starts within an hour/);
 });
 
 test('computeStatus: streak counts default-planned days', () => {
@@ -286,7 +286,7 @@ test('computeStatus: includes this week for the home screen', () => {
   const s = C.parseSchedule(week(SUN, ['Rest', 'Push', 'Push', 'Rest', 'Push', 'Push', 'Rest']));
   const st = C.computeStatus(s, GOALS, {}, '2026-11-03');
   assert.deepEqual(st.week.map((d) => d.workout), ['Rest', 'Push', 'Push', 'Rest', 'Push', 'Push', 'Rest']);
-  assert.deepEqual(st.week.map((d) => d.locked), [true, true, true, false, false, false, false]);
+  assert.deepEqual(st.week.map((d) => d.locked), [true, true, false, false, false, false, false]);
 });
 
 test('parseSettings: reads dated properties and ignores the rest', () => {
@@ -428,4 +428,108 @@ test('grants: tokens for one day only, spent first, gone the next day', () => {
 test('parseSettings: skips and grants', () => {
   const s = C.parseSettings({ 'SKIP_2026-11-02': 'true', 'GRANT_2026-11-02': '1', 'GRANT_2026-11-03': '0.5', 'SKIP_2026-11-04': '"yes"' });
   assert.deepEqual(s.tokens, { skips: { '2026-11-02': true }, grants: { '2026-11-02': 1 } });
+});
+
+// ---- time windows ----------------------------------------------------------
+
+const WINDOWED = C.parseGoalEntries([{ from: '2026-01-01', workouts: [
+  { name: 'Push', rules: [{ type: 'section', name: 'Push', min: 2 }], window: '06:00-10:00' },
+  { name: 'Stretch', rules: [{ type: 'section', name: 'Stretch', min: 1 }], window: '21:00-23:00' },
+  { name: 'Pull', rules: [{ type: 'section', name: 'Pull', min: 2 }] },
+] }]);
+
+test('windows: parse and format; start must come before end, 24:00 at most', () => {
+  assert.deepEqual(C.parseWindow('06:00-10:30'), { start: 360, end: 630 });
+  assert.deepEqual(C.parseWindow('6:00-24:00'), { start: 360, end: 1440 });
+  for (const bad of ['10:00-06:00', '06:00-06:00', '06:00', '25:00-26:00', '06:60-07:00', '24:01-24:02', 7]) {
+    assert.equal(C.parseWindow(bad), null, String(bad));
+  }
+  assert.equal(C.formatWindow({ start: 360, end: 1440 }), '06:00-24:00');
+  assert.deepEqual(C.planParts('Upper @ 7:00-10:00 + Skate'),
+    [{ name: 'Upper', window: { start: 420, end: 600 }, bad: false }, { name: 'Skate', window: null, bad: false }]);
+  assert.deepEqual(C.workoutParts('Upper@07:00-10:00 + Skate'), ['Upper', 'Skate']);
+  assert.equal(C.planParts('Upper@later')[0].bad, true);
+});
+
+test('windows: gated only in the window of a workout not yet done; the day needs every one', () => {
+  const plan = C.parseSchedule(week(SUN, ['Push + Stretch', 'Rest', 'Rest', 'Rest', 'Rest', 'Rest', 'Rest']));
+  const at = (now, ex = {}) => C.computeStatus(plan, WINDOWED, ex, SUN, [], null, now);
+  assert.equal(at(5 * 60).blocked, false);
+  assert.equal(at(6 * 60).blocked, true);
+  assert.equal(at(10 * 60).blocked, false); // the morning window is over
+  assert.equal(at(22 * 60).blocked, true);
+  const s = at(7 * 60).sessions;
+  assert.deepEqual(s.map((x) => [x.workout, x.start, x.end, x.done]),
+    [['Push', '06:00', '10:00', false], ['Stretch', '21:00', '23:00', false]]);
+  assert.deepEqual(s[0].goalsProgress.map((g) => g.name), ['Push']);
+  // Push done: the morning opens, the evening still gates, the day isn't done.
+  const morning = { [SUN]: logged({ push: 2 }) };
+  assert.equal(at(7 * 60, morning).blocked, false);
+  assert.equal(at(22 * 60, morning).blocked, true);
+  assert.equal(at(22 * 60, morning).done, false);
+  assert.equal(at(22 * 60, morning).open, false);
+  // Without a time, every unmet window counts.
+  assert.equal(C.computeStatus(plan, WINDOWED, morning, SUN, [], null).blocked, true);
+  // A missed window still leaves the day to be met by midnight; missing it spends a token.
+  const next = C.computeStatus(plan, WINDOWED, morning, C.addDays(SUN, 1), [], null, 0);
+  assert.equal(next.history[0].event, 'missed');
+});
+
+test('windows: a day can set its own window; a workout without one gates all day', () => {
+  const plan = C.parseSchedule(week(SUN, ['Push@12:00-13:00 + Pull', 'Rest', 'Rest', 'Rest', 'Rest', 'Rest', 'Rest']));
+  const st = C.computeStatus(plan, WINDOWED, {}, SUN, [], null, 7 * 60);
+  assert.deepEqual(st.sessions.map((x) => [x.workout, x.start, x.end]), [['Push', '12:00', '13:00'], ['Pull', '00:00', '24:00']]);
+  assert.equal(st.blocked, true); // Pull, all day
+  const pulled = C.computeStatus(plan, WINDOWED, { [SUN]: logged({ pull: 2 }) }, SUN, [], null, 7 * 60);
+  assert.equal(pulled.blocked, false);
+});
+
+test('windows: a workout can change until an hour before its window', () => {
+  const plan = C.parseSchedule(week(SUN, ['Push + Stretch', 'Push', 'Rest', 'Rest', 'Rest', 'Rest', 'Rest']));
+  const save = (days, now) => C.validateSave(plan, WINDOWED, SUN, days, SUN, now);
+  const rest = ['Rest', 'Rest', 'Rest', 'Rest', 'Rest', 'Rest', 'Rest'];
+  // At 04:59 the 06:00 Push can still go; at 05:00 it can't.
+  assert.equal(save(['Stretch', 'Push', ...rest.slice(2)], 4 * 60 + 59).ok, true);
+  const late = save(['Stretch', 'Push', ...rest.slice(2)], 5 * 60);
+  assert.match(late.errors.join(), /2026-11-01: "Push" starts within an hour, so it can't change/);
+  // Once Push's window is over it stays as it was; Stretch (21:00) can still be dropped at 19:59.
+  assert.equal(save(['Push', 'Push', ...rest.slice(2)], 19 * 60 + 59).ok, true);
+  assert.equal(save(['Push', 'Push', ...rest.slice(2)], 20 * 60).ok, false);
+  // Moving Stretch later counts as dropping it and planning it again.
+  assert.equal(save(['Push + Stretch@22:00-23:00', 'Push', ...rest.slice(2)], 19 * 60).ok, true);
+  assert.equal(save(['Push + Stretch@20:30-23:00', 'Push', ...rest.slice(2)], 19 * 60 + 45).ok, false);
+  // Adding a workout today needs an hour's notice too; Pull (all day) never gets it.
+  assert.equal(save(['Push + Stretch + Pull', 'Push', ...rest.slice(2)], 7 * 60).ok, false);
+  // Tomorrow's 06:00 Push locks at 05:00 tomorrow, not at midnight.
+  assert.equal(save(['Push + Stretch', 'Rest', ...rest.slice(2)], 23 * 60 + 30).ok, true);
+  // The stored plan keeps the day's own windows, spelled one way.
+  assert.equal(save(['Push + Stretch @ 22:00-23:00', 'Push', ...rest.slice(2)], 19 * 60).rows[0][1], 'Push + Stretch@22:00-23:00');
+  assert.match(save(['Push + Stretch@soon', 'Push', ...rest.slice(2)], 0).errors.join(), /bad time window/);
+});
+
+test('windows: the default week saved in the last hour of a day starts the day after tomorrow', () => {
+  const days = ['Pull', 'Pull', 'Pull', 'Pull', 'Rest', 'Rest', 'Rest'];
+  const goals = C.goalsFor(WINDOWED, '2026-11-18').current;
+  assert.equal(C.validateDefault(goals, days, '2026-11-17', 22 * 60 + 59).row[0], '2026-11-18');
+  assert.equal(C.validateDefault(goals, days, '2026-11-17', 23 * 60).row[0], '2026-11-19');
+});
+
+test('windows: goals keep a valid window; a bad one or "@" in a name is refused', () => {
+  const ok = C.validateGoals({}, [{ name: 'Push', rules: [{ type: 'section', name: 'Push', min: 1 }], window: '6:00-10:00' },
+    { name: 'Pull', rules: [{ type: 'section', name: 'Pull', min: 1 }], window: '' }], SUN);
+  assert.equal(ok.ok, true, ok.errors.join());
+  assert.deepEqual(ok.workouts.map((w) => w.window), ['06:00-10:00', undefined]);
+  assert.equal(C.goalsView(C.parseGoalEntries([{ from: SUN, workouts: ok.workouts }])[0].goals)[0].window, '06:00-10:00');
+  const bad = C.validateGoals({}, [{ name: 'P@ss', rules: [{ type: 'section', name: 'Push', min: 1 }], window: '10:00-09:00' }], SUN);
+  assert.match(bad.errors.join(), /"@" starts a time window/);
+  assert.match(bad.errors.join(), /bad time window "10:00-09:00"/);
+});
+
+test('unlock code: HOTP truncation (RFC 4226 example), signed bytes too, padded to 6 digits', () => {
+  const hex = '1f8698690e02ca16618550ef7f19da8e945b555a';
+  const bytes = hex.match(/../g).map((h) => parseInt(h, 16));
+  assert.equal(C.unlockCodeFrom(bytes), '872921');
+  assert.equal(C.unlockCodeFrom(bytes.map((b) => (b > 127 ? b - 256 : b))), '872921');
+  assert.equal(C.unlockMessage('2026-11-20'), 'open:2026-11-20');
+  assert.equal(C.unlockCodeFrom([0, 0, 0, 5, ...Array(15).fill(0), 0]), '000005');
 });

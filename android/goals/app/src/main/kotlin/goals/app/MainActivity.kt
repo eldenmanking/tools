@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import goals.app.data.StatusSources
 import goals.app.data.StatusStore
+import goals.app.data.UnlockStore
 import goals.app.ui.SetupScreen
 import goals.app.watch.WatchService
 
@@ -23,6 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val store = StatusStore(this)
+        val unlocks = UnlockStore(this)
         setContent {
             val required = missing.any { it.required }
             if (required || (missing.isNotEmpty() && !skippedOptional)) {
@@ -32,7 +34,7 @@ class MainActivity : ComponentActivity() {
                     onSkip = if (required) null else ({ skippedOptional = true }),
                 )
             } else {
-                GoalsApp(store, StatusSources.default)
+                GoalsApp(store, unlocks, StatusSources.default)
             }
         }
     }

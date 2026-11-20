@@ -44,6 +44,47 @@ function isIsoDate(s) {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && utcToIso_(isoToUtc_(s)) === s;
 }
 
+// ---- time windows ----------------------------------------------------------
+
+// A workout is gated only in its window, "HH:MM-HH:MM" in the spreadsheet's
+// time zone (start before end, end at most 24:00). Without one it is gated all
+// day. In code a window is { start, end } in minutes since midnight.
+var ALL_DAY = { start: 0, end: 1440 };
+// A workout on a day can be planned, moved or dropped until this many minutes
+// before its window starts.
+var LOCK_MINUTES = 60;
+
+function parseTime_(s) {
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(s).trim());
+  if (!m) return null;
+  var h = +m[1], min = +m[2];
+  if (min > 59 || h > 24 || (h === 24 && min > 0)) return null;
+  return h * 60 + min;
+}
+
+// "06:00-10:00" -> { start: 360, end: 600 }, or null if it isn't a window.
+function parseWindow(s) {
+  if (typeof s !== 'string') return null;
+  var p = s.split('-');
+  if (p.length !== 2) return null;
+  var a = parseTime_(p[0]), b = parseTime_(p[1]);
+  return a === null || b === null || a >= b ? null : { start: a, end: b };
+}
+
+function formatTime_(m) {
+  var h = Math.floor(m / 60), min = m % 60;
+  return (h < 10 ? '0' : '') + h + ':' + (min < 10 ? '0' : '') + min;
+}
+
+function formatWindow(w) {
+  return formatTime_(w.start) + '-' + formatTime_(w.end);
+}
+
+// Minutes from <nowMin> on <today> until <minute> on <iso>.
+function minutesUntil_(today, nowMin, iso, minute) {
+  return (isoToUtc_(iso) - isoToUtc_(today)) / 60000 + minute - nowMin;
+}
+
 // ---- parsing sheet data ----------------------------------------------------
 
 function norm_(s) {
@@ -282,25 +323,32 @@ function weekView(plan, weekStart, today) {
   for (var i = 0; i < 7; i++) {
     var iso = addDays(weekStart, i);
     var p = planFor_(plan, iso);
-    days.push({ date: iso, workout: p.workout || REST, source: p.source, locked: iso <= today });
+    // Days before today are over. From today on each workout locks on its own, an hour
+    // before its window (see validateSave).
+    days.push({ date: iso, workout: p.workout || REST, source: p.source, locked: iso < today });
   }
   return { weekStart: weekStart, stored: !!storedWeeks_(plan_(plan).days)[weekStart], days: days };
 }
 
-// Shared checks for a week of workouts: at least <minGym> gym days, every gym
-// day a known workout (except days where locked(i) is true: they keep whatever
-// they had). Returns { errors, names }, the names normalized ("" or rest ->
-// "Rest").
-function checkWeek_(goals, days, label, locked, minGym) {
+// Shared checks for a week of plans: at least <minGym> gym days, every part a
+// known workout in goalsAt(i) (except parts keep(i, name) says stay as they
+// were), and every day's own window well formed. Returns { errors, names }, the
+// plans normalized ("" or rest -> "Rest", "Upper @ 7:00-10:00+Skate" ->
+// "Upper@07:00-10:00 + Skate").
+function checkWeek_(goalsAt, days, label, keep, minGym) {
   var errors = [], names = [], gym = 0;
   for (var i = 0; i < 7; i++) {
     var w = String(days[i] || '').trim() || REST;
     if (isGymDay(w)) {
       gym++;
-      w = workoutParts(w).join(' + ');
-      if (!(locked && locked(i))) {
-        unknownParts_(goals, w).forEach(function (p) { errors.push(label(i) + ': unknown workout "' + p + '"'); });
-      }
+      var parts = planParts(w);
+      parts.forEach(function (p) {
+        if (p.bad) errors.push(label(i) + ': "' + p.name + '" has a bad time window (use HH:MM-HH:MM)');
+        else if (!(keep && keep(i, p.name)) && !goalsAt(i)[norm_(p.name)]) {
+          errors.push(label(i) + ': unknown workout "' + p.name + '"');
+        }
+      });
+      w = parts.map(function (p) { return p.name + (p.window ? '@' + formatWindow(p.window) : ''); }).join(' + ');
     } else {
       w = REST;
     }
@@ -315,39 +363,60 @@ function checkWeek_(goals, days, label, locked, minGym) {
 var WEEKDAYS_ = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Check a new default week. It applies from tomorrow (server date) to every
-// week that isn't saved, so it can't change today or any earlier day.
-//   days: 7 workout names, Sunday first
+// week that isn't saved, so it can't change today or any earlier day; saved in
+// the last LOCK_MINUTES of the day (<nowMin>), from the day after, so it can't
+// change a workout about to start at midnight either.
+//   days: 7 plans, Sunday first
 // Returns { ok, errors, row: [fromIso, Sun..Sat] }.
-function validateDefault(goals, days, today) {
+function validateDefault(goals, days, today, nowMin) {
   if (!days || days.length !== 7) {
     return { ok: false, errors: ['days must list 7 entries, Sunday first'], row: [] };
   }
-  var c = checkWeek_(goals, days, function (i) { return WEEKDAYS_[i]; }, null, MIN_GYM_DAYS_PER_WEEK);
-  return { ok: c.errors.length === 0, errors: c.errors, row: [addDays(today, 1)].concat(c.names) };
+  var c = checkWeek_(function () { return goals; }, days, function (i) { return WEEKDAYS_[i]; }, null, MIN_GYM_DAYS_PER_WEEK);
+  var from = addDays(today, (nowMin || 0) >= 1440 - LOCK_MINUTES ? 2 : 1);
+  return { ok: c.errors.length === 0, errors: c.errors, row: [from].concat(c.names) };
 }
 
-// Check a save of one whole week. A day can change only until midnight the
-// night before it (so today and earlier are locked), and every gym day from
-// tomorrow on must name a workout in <goals> (the goals in effect from
-// tomorrow). A saved week has no minimum of gym days: the night before is
-// trusted to plan the next day; the minimum applies to the default week.
-//   days: 7 workout names, Sunday first ("Rest" or "" for rest)
+// Check a save of one whole week. Days before today are over and can't change.
+// From today on, each workout can be planned, moved or dropped until
+// LOCK_MINUTES before its window starts (<nowMin>: minutes since midnight
+// today), and a newly planned one must be a workout in the goals in effect that
+// day. A saved week has no minimum of gym days: the night before is trusted to
+// plan the next day; the minimum applies to the default week.
+//   goals: goal entries (parseGoalEntries) or one parseGoals map for every day
+//   days: 7 plans, Sunday first ("Rest" or "" for rest; see planParts)
 // Returns { ok, errors: [string], rows: [[iso, workout]...] } (rows to store).
-function validateSave(plan, goals, weekStart, days, today) {
+function validateSave(plan, goals, weekStart, days, today, nowMin) {
   if (!isIsoDate(weekStart) || dayOfWeek(weekStart) !== 0) {
     return { ok: false, errors: ['weekStart must be a Sunday (yyyy-mm-dd)'], rows: [] };
   }
   if (!days || days.length !== 7) {
     return { ok: false, errors: ['days must list 7 entries, Sunday first'], rows: [] };
   }
-  var c = checkWeek_(goals, days, function (i) { return addDays(weekStart, i); },
-    function (i) { return addDays(weekStart, i) <= today; }, 0);
+  nowMin = nowMin || 0;
+  var isoAt = function (i) { return addDays(weekStart, i); };
+  var current = function (i) { return workoutFor(plan, isoAt(i)) || REST; };
+  // A workout already planned that day keeps passing, even if its goals were removed since.
+  var keep = function (i, name) {
+    return workoutParts(current(i)).some(function (n) { return norm_(n) === norm_(name); });
+  };
+  var c = checkWeek_(function (i) { return goalsOn_(goals, isoAt(i)); }, days, isoAt, keep, 0);
   var errors = c.errors, rows = [];
   for (var i = 0; i < 7; i++) {
-    var iso = addDays(weekStart, i);
-    var current = workoutFor(plan, iso) || REST;
-    if (iso <= today && norm_(c.names[i]) !== norm_(current)) {
-      errors.push(iso + ' is locked (was "' + current + '")');
+    var iso = isoAt(i), was = current(i);
+    if (iso < today) {
+      if (norm_(c.names[i]) !== norm_(was)) errors.push(iso + ' is over (was "' + was + '")');
+    } else {
+      var g = goalsOn_(goals, iso);
+      var before = sessionsFor_(g, was), after = sessionsFor_(g, c.names[i]);
+      var locked = function (s) { return minutesUntil_(today, nowMin, iso, s.window.start) <= LOCK_MINUTES; };
+      var has = function (list, s) { return list.some(function (o) { return sessionKey_(o) === sessionKey_(s); }); };
+      before.forEach(function (s) {
+        if (locked(s) && !has(after, s)) errors.push(iso + ': "' + s.workout + '" starts within an hour, so it can\'t change');
+      });
+      after.forEach(function (s) {
+        if (locked(s) && !has(before, s)) errors.push(iso + ': "' + s.workout + '" would start within an hour; plan it at least an hour ahead');
+      });
     }
     rows.push([iso, c.names[i]]);
   }
@@ -366,11 +435,22 @@ function workoutRows_(workouts) {
   return rows;
 }
 
+// parseGoals for saved workouts, each with its window (see parseWindow) when it has one.
+function goalsMap_(workouts) {
+  var goals = parseGoals(workoutRows_(workouts));
+  (workouts || []).forEach(function (w) {
+    var g = w && goals[norm_(w.name)];
+    var win = w && parseWindow(w.window);
+    if (g && win) g.window = win;
+  });
+  return goals;
+}
+
 // Saved goals: [{ from, workouts }]. Returns [{ from, goals: parseGoals(...) }]
 // sorted by date.
 function parseGoalEntries(entries) {
   return entries.slice().sort(function (a, b) { return a.from < b.from ? -1 : 1; })
-    .map(function (e) { return { from: e.from, goals: parseGoals(workoutRows_(e.workouts)) }; });
+    .map(function (e) { return { from: e.from, goals: goalsMap_(e.workouts) }; });
 }
 
 // The goals in effect on <iso> ({} if none are saved) and the next ones saved
@@ -388,20 +468,23 @@ function goalsOn_(goals, iso) {
   return Array.isArray(goals) ? goalsFor(goals, iso).current : goals;
 }
 
-// A parseGoals map as the app sees it: [{ name, rules: [{ type, name, min }] }].
+// A parseGoals map as the app sees it: [{ name, rules: [{ type, name, min }], window? }].
 function goalsView(goals) {
   return Object.keys(goals).map(function (k) {
-    return {
+    var v = {
       name: goals[k].name,
       rules: goals[k].rules.map(function (r) { return { type: r.type, name: r.name, min: r.min }; })
     };
+    if (goals[k].window) v.window = formatWindow(goals[k].window);
+    return v;
   });
 }
 
 // Check new goals. They take effect tomorrow (server date), so a change never
 // unblocks anything today, and a workout still planned from tomorrow on can't
 // be removed (change the schedule first).
-//   workouts: [{ name, rules: [{ type: "section" | "exercise", name, min }] }]
+//   workouts: [{ name, rules: [{ type: "section" | "exercise", name, min }], window? }]
+//   (window: "HH:MM-HH:MM", gated all day when left out)
 // Returns { ok, errors, from, workouts } (workouts cleaned up, to store).
 function validateGoals(plan, workouts, today) {
   if (!Array.isArray(workouts) || !workouts.length) {
@@ -414,10 +497,15 @@ function validateGoals(plan, workouts, today) {
     if (!name) errors.push(label + ': needs a name');
     else if (!isGymDay(name)) errors.push('"' + name + '" is reserved for rest days');
     else if (name.indexOf('+') >= 0) errors.push('"' + name + '": "+" joins workouts on one day, so names can\'t use it');
+    else if (name.indexOf('@') >= 0) errors.push('"' + name + '": "@" starts a time window, so names can\'t use it');
     else if (seen[norm_(name)]) errors.push('"' + name + '" is listed twice');
     seen[norm_(name)] = true;
     var rules = (w && Array.isArray(w.rules)) ? w.rules : [];
     if (!rules.length) errors.push(label + ': needs at least one goal');
+    var win = w && w.window != null && w.window !== '' ? parseWindow(w.window) : null;
+    if (w && w.window != null && w.window !== '' && !win) {
+      errors.push(label + ': bad time window "' + w.window + '" (use HH:MM-HH:MM)');
+    }
     out.push({
       name: name,
       rules: rules.map(function (r) {
@@ -432,11 +520,13 @@ function validateGoals(plan, workouts, today) {
           errors.push(label + ': ' + rn + ' needs a whole number of sets, 1 or more');
         }
         return { type: type, name: rn, min: min };
-      })
+      }),
+      window: win ? formatWindow(win) : undefined
     });
   });
   var from = addDays(today, 1);
-  var goals = parseGoals(workoutRows_(out));
+  out.forEach(function (w) { if (!w.window) delete w.window; });
+  var goals = goalsMap_(out);
   var p = plan_(plan);
   // Two weeks from tomorrow cover the default and copied weeks; saved days can
   // be further out.
@@ -513,10 +603,36 @@ function parseSettings(props) {
 
 // A day's plan can combine workouts with "+" ("Upper + Skate"): it is done when
 // every goal of every part is met. A goal shared by parts (same section or
-// exercise) counts once, with the higher minimum.
+// exercise) counts once, with the higher minimum. A part can carry its own
+// window for that day: "Upper@07:00-10:00".
+// Returns [{ name, window (null: the workout's own), bad (the window didn't parse) }].
+function planParts(plan) {
+  return String(plan == null ? '' : plan).split('+').map(function (p) { return p.trim(); })
+    .filter(function (p) { return p; }).map(function (p) {
+      var at = p.indexOf('@');
+      if (at < 0) return { name: p, window: null, bad: false };
+      var w = parseWindow(p.slice(at + 1).replace(/\s+/g, ''));
+      return { name: p.slice(0, at).trim(), window: w, bad: !w };
+    });
+}
+
+// The workout names of a day's plan: "Upper@07:00-10:00 + Skate" -> ["Upper", "Skate"].
 function workoutParts(name) {
-  return String(name == null ? '' : name).split('+').map(function (p) { return p.trim(); })
-    .filter(function (p) { return p; });
+  return planParts(name).map(function (p) { return p.name; }).filter(function (p) { return p; });
+}
+
+// A day's gated sessions: [{ workout, window }], each part with its own window
+// that day, else its workout's, else all day.
+function sessionsFor_(goals, plan) {
+  if (!isGymDay(plan)) return [];
+  return planParts(plan).filter(function (p) { return p.name; }).map(function (p) {
+    var g = goals[norm_(p.name)];
+    return { workout: p.name, window: p.window || (g && g.window) || ALL_DAY };
+  });
+}
+
+function sessionKey_(s) {
+  return norm_(s.workout) + '@' + formatWindow(s.window);
 }
 
 // The parts of <name> that aren't workouts in <goals>.
@@ -569,7 +685,10 @@ function dayProgress(goals, workout, day) {
 // on that day only and are spent before earned ones.
 //   goals: goal entries (parseGoalEntries), so each day is judged by the goals
 //          in effect that day; a bare parseGoals map applies to every day.
-function computeStatus(schedule, goals, exercise, today, allowlist, tokenDays) {
+//   nowMin: minutes since midnight today. Apps are gated only in the window of a
+//           workout that isn't done; without nowMin, in every such window.
+// Whatever the windows, the day counts done only when every workout is.
+function computeStatus(schedule, goals, exercise, today, allowlist, tokenDays, nowMin) {
   var skips = (tokenDays && tokenDays.skips) || {}, grants = (tokenDays && tokenDays.grants) || {};
   var streak = 0, longest = 0, tokens = 0, completed = 0;
   var todayGrant = grants[today] || 0, skippedToday = false;
@@ -612,7 +731,18 @@ function computeStatus(schedule, goals, exercise, today, allowlist, tokenDays) {
   }
   var todayWorkout = workoutFor(schedule, today) || REST;
   var scheduled = isGymDay(todayWorkout);
-  var tp = scheduled ? dayProgress(goalsOn_(goals, today), todayWorkout, exercise[today]) : { done: false, progress: [] };
+  var tg = goalsOn_(goals, today);
+  var tp = scheduled ? dayProgress(tg, todayWorkout, exercise[today]) : { done: false, progress: [] };
+  var sessions = sessionsFor_(tg, todayWorkout).map(function (s) {
+    var sp = dayProgress(tg, s.workout, exercise[today]);
+    return { workout: s.workout, start: formatTime_(s.window.start), end: formatTime_(s.window.end),
+      done: sp.done, goalsProgress: sp.progress, _w: s.window };
+  });
+  var gatedNow = sessions.some(function (s) {
+    return !s.done && (nowMin == null || (s._w.start <= nowMin && nowMin < s._w.end));
+  });
+  sessions.forEach(function (s) { delete s._w; });
+  var open = !scheduled || tp.done || skippedToday;
   return {
     today: today,
     todayScheduled: scheduled,
@@ -621,8 +751,12 @@ function computeStatus(schedule, goals, exercise, today, allowlist, tokenDays) {
     unknownWorkout: !!tp.unknownWorkout,
     // Today was skipped with a freeze token.
     skipped: skippedToday,
-    // The app blocks only while this is true.
-    blocked: scheduled && !tp.done && !skippedToday,
+    // Gated right now (at nowMin). The app judges the time itself from sessions.
+    blocked: !open && gatedNow,
+    // Nothing is left to gate today: a rest day, done, or skipped.
+    open: open,
+    // Today's workouts, each with its window and goals, in plan order.
+    sessions: sessions,
     // Today can still be skipped: blocked, with a token to spend.
     canSkip: scheduled && !tp.done && !skippedToday && tokens + todayGrant > 0,
     streak: streak,
@@ -639,6 +773,26 @@ function computeStatus(schedule, goals, exercise, today, allowlist, tokenDays) {
   };
 }
 
+// ---- unlock code -----------------------------------------------------------
+
+// What the unlock code for <today> signs: the tablet opens its gate for that
+// day when given the code, without a connection.
+function unlockMessage(today) {
+  return 'open:' + today;
+}
+
+// The 6-digit unlock code from the HMAC-SHA256 of unlockMessage(today), keyed by
+// the token, as bytes (signed, as Apps Script gives them, or not). Truncated as
+// in HOTP (RFC 4226), so the app computes the same code.
+function unlockCodeFrom(hmac) {
+  var b = hmac.map(function (x) { return x & 0xff; });
+  var o = b[b.length - 1] & 0x0f;
+  var n = ((b[o] & 0x7f) * 16777216) + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
+  var code = String(n % 1000000);
+  while (code.length < 6) code = '0' + code;
+  return code;
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     addDays: addDays, serialToIso: serialToIso, dayOfWeek: dayOfWeek, weekStartOf: weekStartOf, isIsoDate: isIsoDate,
@@ -650,6 +804,8 @@ if (typeof module !== 'undefined') {
     validateGoals: validateGoals, parseSettings: parseSettings, settingKey: settingKey,
     isGymDay: isGymDay, workoutFor: workoutFor, weekView: weekView, validateSave: validateSave,
     dayProgress: dayProgress, computeStatus: computeStatus,
+    parseWindow: parseWindow, formatWindow: formatWindow, planParts: planParts,
+    unlockMessage: unlockMessage, unlockCodeFrom: unlockCodeFrom, LOCK_MINUTES: LOCK_MINUTES,
     MIN_GYM_DAYS_PER_WEEK: MIN_GYM_DAYS_PER_WEEK, MAX_TOKENS: MAX_TOKENS
   };
 }

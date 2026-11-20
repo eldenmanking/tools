@@ -23,10 +23,13 @@ import goals.app.MainActivity
 import goals.app.Permissions
 import goals.app.R
 import goals.app.data.StatusStore
+import goals.app.data.UnlockStore
 import goals.core.AppEvent
 import goals.core.ForegroundTracker
 import goals.core.Notice
 import goals.core.gateState
+import goals.core.minuteOfDay
+import goals.core.statusZone
 import goals.core.notice
 import goals.core.shouldGate
 import java.time.Instant
@@ -44,6 +47,7 @@ class WatchService : Service() {
     private val tracker = ForegroundTracker()
     private lateinit var usage: UsageStatsManager
     private lateinit var store: StatusStore
+    private lateinit var unlocks: UnlockStore
     private lateinit var alwaysAllowed: Set<String>
     private var queriedTo = 0L
     private var shown: Notice? = null
@@ -71,6 +75,7 @@ class WatchService : Service() {
         super.onCreate()
         usage = getSystemService(UsageStatsManager::class.java)
         store = StatusStore(this)
+        unlocks = UnlockStore(this)
         alwaysAllowed = alwaysAllowed()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "Gym Gate status", NotificationManager.IMPORTANCE_LOW).apply {
@@ -110,9 +115,8 @@ class WatchService : Service() {
         val pkg = tracker.update(readEvents(queriedTo, now))
         queriedTo = now
         val cached = store.load()
-        val state = gateState(cached, Instant.now(), ZoneId.systemDefault())
-
-        val n = notice(state, cached)
+        val n = noticeNow()
+        val state = stateNow(cached)
         if (n != shown) { // e-ink: redraw only on change
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, build(n))
             shown = n
@@ -150,9 +154,13 @@ class WatchService : Service() {
         return out
     }
 
+    // Judged afresh on every poll, so windows open and close, and the allowance runs out, on time.
+    private fun stateNow(cached: goals.core.Status?) = gateState(cached, Instant.now(), ZoneId.systemDefault(), unlocks.load())
+
     private fun noticeNow(): Notice {
         val cached = store.load()
-        return notice(gateState(cached, Instant.now(), ZoneId.systemDefault()), cached)
+        val minute = minuteOfDay(Instant.now(), statusZone(cached, ZoneId.systemDefault()))
+        return notice(stateNow(cached), cached, minute)
     }
 
     private fun build(n: Notice): Notification {

@@ -22,8 +22,11 @@ data class GoalRule(
     val min: Double = 1.0,
 )
 
+/** A workout: its goals, and when it gates ([window], "HH:MM-HH:MM"; null: all day). */
 @Serializable
-data class Workout(val name: String, val rules: List<GoalRule> = emptyList())
+data class Workout(val name: String, val rules: List<GoalRule> = emptyList(), val window: String? = null) {
+    val gated: Window get() = Window.parse(window) ?: Window.ALL_DAY
+}
 
 /** A default week, Sunday first, in effect from [from] (yyyy-mm-dd). */
 @Serializable
@@ -144,18 +147,14 @@ fun editableDefault(view: ScheduleView): List<String> =
     (view.defaults.pending ?: view.defaults.current)?.days?.takeIf { it.size == 7 } ?: List(7) { REST }
 
 /**
- * Why [days] (7 names, Sunday first) can't be saved as the default week, the same checks the
- * server makes: enough gym days, and every gym day one of [workouts].
+ * Why [days] (7 plans, Sunday first) can't be saved as the default week, the same checks the
+ * server makes: enough gym days, every gym day one of [workouts], and well-formed windows.
  */
-/** The workouts of one day's plan: "Upper + Skate" -> [Upper, Skate] (workoutParts in Core.js). */
-fun workoutParts(name: String): List<String> = name.split('+').map { it.trim() }.filter { it.isNotEmpty() }
-
-/** One day's plan from the chosen [parts]: "Upper + Skate", or Rest when none. */
-fun joinWorkouts(parts: List<String>): String = parts.joinToString(" + ").ifEmpty { REST }
-
 fun defaultWeekErrors(days: List<String>, workouts: List<String>, minGymDays: Int): List<String> {
     val errors = mutableListOf<String>()
     if (days.size != 7) return listOf("a week has 7 days")
+    days.flatMap(::planParts).filter { it.bad }
+        .forEach { errors.add("\"${it.name}\" has a bad time window.") }
     days.filter { isGymDay(it) }.flatMap(::workoutParts)
         .filter { p -> workouts.none { it.equals(p, ignoreCase = true) } }.distinct()
         .forEach { errors.add("\"$it\" isn't one of your workouts") }
@@ -166,6 +165,15 @@ fun defaultWeekErrors(days: List<String>, workouts: List<String>, minGymDays: In
 
 /** The allowlist the picker starts from: the one saved to start later, else the one in effect. */
 fun editableAllowlist(view: ScheduleView): List<String> = view.allowlist.pending?.packages ?: view.allowlist.current
+
+/**
+ * Each workout's window on [date] (yyyy-mm-dd): from the goals saved to start by then, else the
+ * ones in effect. Null for a workout without one, or not known.
+ */
+fun windowsOn(view: ScheduleView, date: String): (String) -> Window? {
+    val goals = view.goals.pending?.takeIf { it.from <= date }?.workouts ?: view.goals.current
+    return { name -> goals.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let { Window.parse(it.window) } }
+}
 
 /** The goals the editor starts from: the ones saved to start later, else the ones in effect. */
 fun editableGoals(view: ScheduleView): List<Workout> = view.goals.pending?.workouts ?: view.goals.current
@@ -181,8 +189,10 @@ fun goalsErrors(workouts: List<Workout>): List<String> {
             name.isEmpty() -> errors.add("Every workout needs a name.")
             !isGymDay(name) -> errors.add("\"$name\" is reserved for rest days.")
             '+' in name -> errors.add("\"$name\": names can't use \"+\".")
+            '@' in name -> errors.add("\"$name\": names can't use \"@\".")
             !seen.add(name.lowercase()) -> errors.add("\"$name\" is listed twice.")
         }
+        if (w.window != null && Window.parse(w.window) == null) errors.add("${name.ifEmpty { "A workout" }} has a bad time window.")
         if (w.rules.isEmpty()) errors.add("${name.ifEmpty { "A workout" }} needs at least one goal.")
         w.rules.filter { it.name.isBlank() }.forEach { _ -> errors.add("${name.ifEmpty { "A workout" }} has a goal without a name.") }
     }

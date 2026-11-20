@@ -33,22 +33,35 @@ import goals.core.DayMark
 import goals.core.MAX_TOKENS
 import goals.core.Status
 import goals.core.WeekCell
+import goals.core.gatedAt
+import goals.core.gatedSession
+import goals.core.nextSession
+import goals.core.planNames
+import goals.core.windowText
 import goals.core.weekCells
 
 /**
- * The Status tab (mock: "Home (done for today)"). The app never gates itself, so while today is
- * blocked this shows today's goals and "Check again" too, through [check].
+ * The Status tab (mock: "Home (done for today)") at [minute] of the sheet's day (null: as the
+ * server last said). The app never gates itself, so while today isn't done this shows "Check
+ * again" too, through [check], and while a window gates, its goals.
  */
 @Composable
-fun HomeScreen(status: Status, check: HomeCheck? = null) {
+fun HomeScreen(status: Status, check: HomeCheck? = null, minute: Int? = null) {
+    val gated = minute?.let { status.gatedAt(it) } ?: status.blocked
+    val session = minute?.let { status.gatedSession(it) }
+    val next = minute?.let { status.nextSession(it) }
+    val pending = status.todayScheduled && !status.done && !status.skipped && !status.open
     val (title, body) = when {
-        status.blocked -> "Gym first." to "Other apps unlock once ${status.workout} is in your log."
+        gated -> "Gym first." to (session?.let { lockedText(status, it) } ?: "Other apps unlock once ${planNames(status.workout)} is in your log.")
         status.skipped -> "Skipped." to "A freeze token covers today. Every app is open until tomorrow."
         // A day with no source has nothing planned: no saved week, default or earlier week to copy.
         !status.todayScheduled && status.week.all { it.source == null } ->
             "Nothing planned." to "Set a schedule to start your streak."
         !status.todayScheduled -> "Rest day." to "Nothing is locked today."
-        else -> "Done for today." to "${status.workout} is logged. Every app is open until tomorrow."
+        !pending -> "Done for today." to "${planNames(status.workout)} is logged. Every app is open until tomorrow."
+        next != null -> "Open for now." to "${next.workout} locks apps ${windowText(next.window)} until it's in your log."
+        else -> "Open for now." to "Today's windows are over. Log the rest by midnight to keep the streak: " +
+            status.sessions.filter { !it.done }.joinToString(", ") { it.workout } + "."
     }
     Column(
         modifier = Modifier.fillMaxSize().background(Ink.White).padding(Ink.Gutter),
@@ -62,10 +75,10 @@ fun HomeScreen(status: Status, check: HomeCheck? = null) {
 
         // The goals take the space left over and scroll inside their box when there are many.
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            if (status.blocked) GoalsList(status, Modifier.weight(1f, fill = false))
+            if (gated) GoalsList(status, Modifier.weight(1f, fill = false), session?.goalsProgress)
 
-            // Left out while blocked, to leave room for the goals.
-            val cells = if (status.blocked) emptyList() else weekCells(status)
+            // Left out while gated, to leave room for the goals.
+            val cells = if (gated) emptyList() else weekCells(status)
             if (cells.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     InkLabel("This week")
@@ -86,7 +99,7 @@ fun HomeScreen(status: Status, check: HomeCheck? = null) {
             }
         }
 
-        if (status.blocked && check != null) {
+        if ((gated || pending) && check != null) {
             CheckButtons(status, check.checking, check.error, check.onCheckAgain, check.onDebugUnlock, caption = false, onSkip = check.onSkip)
         }
     }
@@ -127,7 +140,7 @@ private fun WeekDayCell(cell: WeekCell, modifier: Modifier, tip: Boolean, onTap:
                         Modifier.widthIn(max = 320.dp).background(Ink.White).border(Ink.Rule, Ink.Black).padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        InkText("${dayHeader(cell.date)} · ${cell.workout}", size = 20.sp, bold = true)
+                        InkText("${dayHeader(cell.date)} · ${planNames(cell.workout)}", size = 20.sp, bold = true)
                         InkText(markText(cell), size = 20.sp)
                     }
                 }

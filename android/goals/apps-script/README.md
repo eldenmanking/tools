@@ -18,11 +18,13 @@ that date. Spacer columns with no date are skipped. Nothing else in the sheet is
 The app sets these through the endpoints. They are script properties (Project Settings > Script
 properties), one per dated entry, each a JSON array:
 
-- `WEEK_<sunday>`: a saved week, 7 workout names from Sunday. A week that isn't saved follows the
-  default week, or repeats the week before it when no default is set.
+- `WEEK_<sunday>`: a saved week, 7 plans from Sunday. A plan joins workouts with `+`, and a workout
+  can carry its own window for that day: `Upper@07:00-10:00 + Stretch`. A week that isn't saved
+  follows the default week, or repeats the week before it when no default is set.
 - `DEFAULT_<date>`: the default week from that date.
 - `GOALS_<date>`: the workouts from that date. Each workout is done when every one of its goals
-  is met. There are two goal types, and one workout can mix both:
+  is met, and gates apps only in its `window` (`"06:00-10:00"`; all day without one). There are
+  two goal types, and one workout can mix both:
   - `section`: log at least *min* sets from that section of `Exercise` that day. A cell holds one
     entry per set, separated by `,` or `;` outside parentheses, so `45(8),45(8);50(6)` is 3 sets.
     Example: Upper = Push 2, Pull 2, Core 1.
@@ -41,15 +43,19 @@ Each day is judged by the goals in effect that day, so changing goals never rewr
 ## Rules
 - Weeks start Sunday. A saved week can have any number of gym days: the night before is trusted
   to plan the next day. The default week needs at least 4.
-- A day can be changed until midnight the night before it; "today" is the server's date in
-  the spreadsheet's time zone, never the device clock.
+- Apps are gated only while a workout that isn't done is in its window. The day counts done when
+  every workout is, whenever it is logged before midnight; a missed window doesn't lock the rest of
+  the day.
+- A workout on a day can be planned, moved or dropped until an hour before its window starts (an
+  all-day one: 23:00 the night before). Days before today can't change. "Today" and the time are the
+  server's, in the spreadsheet's time zone, never the device clock.
 - Each completed gym day adds 1 to the streak. A missed one spends a freeze token, if there is one,
   or resets the streak. Rest days and today (while still unmet) change nothing.
 - A blocked gym day can be skipped, but only with a token: it counts like a missed day covered by a
   token (the streak is kept) and unblocks the rest of the day.
 - One token per 7 completed gym days, capped at 2. Workouts on rest days don't count.
-- A saved default week takes effect the next day and only fills weeks that aren't saved, so
-  changing it never changes today or an earlier day.
+- A saved default week takes effect the next day (saved after 23:00, the day after) and only fills
+  weeks that aren't saved, so changing it never changes today or an earlier day.
 - Saved goals and allowlists take effect the next day (server date), so changing them never
   unblocks anything today. A workout that is still planned from tomorrow on can't be removed.
 
@@ -74,7 +80,17 @@ The URL and token together grant access, so keep them out of public places. To r
 delete `TOKEN` under Script properties and run `setup` again.
 
 For emulator testing only, set the script property `ALLOW_FAKE_TODAY` to `true`. With it set,
-`&today=2026-11-20` pretends that date is today. Remove the property afterwards.
+`&today=2026-11-20` pretends that date is today (from midnight) and `&now=18:30` that time. Remove
+the property afterwards.
+
+## The phone page
+`<url>?token=<TOKEN>&action=page` is a page for a phone's browser (bookmark it): today's workouts
+with their windows and progress, the streak and tokens, and:
+- once nothing is left to gate today (done, skipped or a rest day), a 6-digit unlock code. The
+  tablet's gate takes it without a connection: it is the HMAC-SHA256 of `open:<date>` keyed by the
+  token, truncated as in HOTP, so the app works it out itself. It opens that day only.
+- while today can be skipped, "Skip today with a token", then a confirm link carrying today's date;
+  only that link spends the token.
 
 ## Deploy with clasp
 [clasp](https://github.com/google/clasp) uploads the files and updates the deployment from the

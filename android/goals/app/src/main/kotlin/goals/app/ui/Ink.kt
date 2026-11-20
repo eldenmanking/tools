@@ -218,7 +218,9 @@ fun InkRow(
             .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        InkText(label, size = 22.sp, bold = bold, color = color, modifier = Modifier.weight(1f))
-        InkText(value, size = 22.sp, bold = valueBold, color = color)
+        // The label keeps its width; a long value wraps in what is left.
+        InkText(label, size = 22.sp, bold = bold, color = color)
+        InkText(value, size = 22.sp, bold = valueBold, color = color, align = TextAlign.End,
+            modifier = Modifier.weight(1f).padding(start = 16.dp))
     }
 }

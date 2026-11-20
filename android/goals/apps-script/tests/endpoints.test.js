@@ -121,7 +121,7 @@ test('saveSchedule stores the week; locked days are refused, short weeks are fin
   const locked = s.post({ token: TOKEN, today: '2026-11-23' },
     { action: 'saveSchedule', weekStart: '2026-11-22', days: ['Upper', 'Upper', 'Lower', 'Upper', 'Rest', 'Skate', 'Rest'] });
   assert.equal(locked.ok, false);
-  assert.match(locked.errors.join(), /2026-11-22 is locked/);
+  assert.match(locked.errors.join(), /2026-11-22 is over/);
 
   const short = s.post({ token: TOKEN, today: '2026-11-21' },
     { action: 'saveSchedule', weekStart: '2026-11-29', days: ['Rest', 'Upper', 'Rest', 'Upper', 'Rest', 'Skate', 'Rest'] });
@@ -137,7 +137,7 @@ test('schedule action returns both weeks, the default, goals and allowlist', () 
   assert.deepEqual(v.workouts, ['Upper', 'Lower', 'Skate']);
   assert.equal(v.weeks.length, 2);
   assert.equal(v.weeks[0].weekStart, '2026-11-15');
-  assert.deepEqual(v.weeks[0].days.map((d) => d.locked), [true, true, true, false, false, false, false]);
+  assert.deepEqual(v.weeks[0].days.map((d) => d.locked), [true, true, false, false, false, false, false]); // today locks per workout
   assert.equal(v.default.current.from, '2026-11-15');
   assert.deepEqual(v.goals.current, GOALS);
   assert.equal(v.goals.pending, null);
@@ -228,5 +228,51 @@ test('skipToday: needs a token; a grant for today makes one; then today is open'
   assert.equal(st.blocked, false);
   assert.equal(st.skipped, true);
   assert.equal(s.post({ token: TOKEN, today: '2026-11-15' }, { action: 'skipToday' }).errors[0], 'today is already skipped');
-  assert.equal(s.post({ token: TOKEN, today: '2026-11-18' }, { action: 'skipToday' }).errors[0], 'today is not blocked');
+  assert.equal(s.post({ token: TOKEN, today: '2026-11-18' }, { action: 'skipToday' }).errors[0], 'nothing is left to gate today');
+});
+
+test('status uses the time of day: &now with ALLOW_FAKE_TODAY', () => {
+  const s = setup({ 'GOALS_2026-01-01': JSON.stringify([{ ...GOALS[2], window: '18:00-20:00' }, GOALS[0]]) });
+  s.post({ token: TOKEN, today: '2026-11-14' }, { action: 'saveDefault', days: ['Skate', 'Skate', 'Skate', 'Upper', 'Rest', 'Skate', 'Rest'] });
+  assert.equal(s.get({ token: TOKEN, today: '2026-11-16', now: '17:59' }).blocked, false);
+  const st = s.get({ token: TOKEN, today: '2026-11-16', now: '18:00' });
+  assert.equal(st.blocked, true);
+  assert.deepEqual(st.sessions.map((x) => [x.workout, x.start, x.end]), [['Skate', '18:00', '20:00']]);
+  // The schedule's goals carry the window.
+  assert.equal(s.get({ token: TOKEN, today: '2026-11-16', action: 'schedule' }).goals.current[0].window, '18:00-20:00');
+  // Within an hour of 18:00 the day can't drop Skate.
+  const r = s.post({ token: TOKEN, today: '2026-11-16', now: '17:30' },
+    { action: 'saveSchedule', weekStart: '2026-11-15', days: ['Skate', 'Rest', 'Skate', 'Upper', 'Rest', 'Skate', 'Rest'] });
+  assert.match(r.errors.join(), /"Skate" starts within an hour/);
+});
+
+test('page: needs the token; shows the code once nothing is left to gate; skips only with its own link', () => {
+  const s = setup();
+  assert.match(s.page({ token: 'nope' }), /Unauthorized/);
+  s.post({ token: TOKEN, today: '2026-11-14' },
+    { action: 'saveDefault', days: ['Upper', 'Upper', 'Lower', 'Rest', 'Upper', 'Upper', 'Rest'] });
+  // 2026-11-17 (Tuesday, Lower): Legs 0 of 3, not done. No code, no skip without a token.
+  const pending = s.page({ token: TOKEN, today: '2026-11-17' });
+  assert.match(pending, /Not done yet\./);
+  assert.doesNotMatch(pending, /Unlock code/);
+  assert.doesNotMatch(pending, /Skip today/);
+  // With a token for the day: an "ask" link, then a confirm link naming the date.
+  s.props['GRANT_2026-11-17'] = '1';
+  assert.match(s.page({ token: TOKEN, today: '2026-11-17' }), /skip=ask/);
+  const ask = s.page({ token: TOKEN, today: '2026-11-17', skip: 'ask' });
+  assert.match(ask, /skip=2026-11-17/);
+  assert.equal(s.props['SKIP_2026-11-17'], undefined);
+  // A stale confirm link for another day does nothing.
+  s.page({ token: TOKEN, today: '2026-11-17', skip: '2026-11-16' });
+  assert.equal(s.props['SKIP_2026-11-17'], undefined);
+  const skipped = s.page({ token: TOKEN, today: '2026-11-17', skip: '2026-11-17' });
+  assert.equal(s.props['SKIP_2026-11-17'], 'true');
+  assert.match(skipped, /Today is skipped with a token\./);
+  // The code: HMAC-SHA256 of "open:<day>" keyed by the token, as the app computes it.
+  const crypto = require('node:crypto');
+  const C = require('../Core.js');
+  const code = C.unlockCodeFrom(Array.from(crypto.createHmac('sha256', TOKEN).update('open:2026-11-17').digest()));
+  assert.match(skipped, new RegExp(code.slice(0, 3) + ' ' + code.slice(3)));
+  // Names are escaped.
+  assert.doesNotMatch(s.page({ token: TOKEN, today: '2026-11-17' }), /<script/);
 });

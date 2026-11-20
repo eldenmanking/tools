@@ -12,6 +12,8 @@ import goals.core.Goals
 import goals.core.Workout
 import goals.core.Status
 import goals.core.WeekDay
+import goals.core.Session
+import goals.core.Window
 import org.junit.Rule
 import org.junit.Test
 
@@ -113,7 +115,7 @@ class ScreensTest {
     private val savedDefault = listOf("Rest", "Upper", "Lower", "Rest", "Upper", "Lower", "Skate")
 
     private fun editor(draft: List<String>, notice: String? = null) = DefaultWeekUi(
-        draft = draft, saved = savedDefault, inEffect = savedDefault, workouts = listOf("Upper", "Lower", "Skate"), minGymDays = 4,
+        draft = draft, saved = savedDefault, inEffect = savedDefault, workouts = listOf("Upper", "Lower", "Skate"), windowOf = { null }, minGymDays = 4,
         loading = false, saving = false, errors = emptyList(), notice = notice, onRetry = {}, onPickDay = {}, onSave = {},
     )
 
@@ -173,6 +175,56 @@ class ScreensTest {
     @Test
     fun homeCanSkip() = paparazzi.snapshot {
         AppFrame(Tab.Status, {}) { HomeScreen(locked.copy(canSkip = true, todayTokens = 1, tokens = 0), HomeCheck(false, null, {}, null, {})) }
+    }
+
+    private val upper = Session("Upper", "06:00", "10:00", goalsProgress = locked.goalsProgress)
+    private val windowed = locked.copy(
+        workout = "Upper + Stretch",
+        sessions = listOf(upper, Session("Stretch", "21:00", "23:00", goalsProgress = listOf(GoalProgress("section", "Stretch", 1.0, 0, false)))),
+    )
+
+    @Test
+    fun gateWindow() = paparazzi.snapshot {
+        GateScreen("2026-11-17", windowed, unknownReason = null, checking = false, error = null, onCheckAgain = {}, onDebugUnlock = null,
+            onSkip = {}, session = upper, extras = GateExtras(null, {}, {}))
+    }
+
+    @Test
+    fun gateAllowanceUsed() = paparazzi.snapshot {
+        GateScreen("2026-11-18", locked.copy(today = "2026-11-16"), unknownReason = "Last checked 2026-11-16.", checking = false,
+            error = "no connection", onCheckAgain = {}, onDebugUnlock = null, extras = GateExtras("10:41", {}, {}))
+    }
+
+    @Test
+    fun homeBetweenWindows() = paparazzi.snapshot {
+        AppFrame(Tab.Status, {}) { HomeScreen(windowed.copy(sessions = windowed.sessions.mapIndexed { i, x -> if (i == 0) x.copy(done = true) else x }),
+            HomeCheck(false, null, {}, null), minute = 12 * 60) }
+    }
+
+    @Test
+    fun code() = paparazzi.snapshot {
+        CodeScreen("Wrong code. 4 tries left.", {}, {})
+    }
+
+    @Test
+    fun windowEditor() = paparazzi.snapshot {
+        AppFrame(Tab.Schedule, {}) { WindowEditor("Upper on Monday", Window(360, 600), {}, {}, onDefault = {}) }
+    }
+
+    @Test
+    fun dayPickerWindows() = paparazzi.snapshot {
+        val windows = mapOf("upper" to Window(360, 600), "stretch" to Window(21 * 60, 23 * 60))
+        AppFrame(Tab.Schedule, {}) {
+            DayPicker(2, listOf("Upper", "Lower", "Stretch"), "Upper + Stretch@20:00-22:00", {}, {}, windowOf = { windows[it.lowercase()] }, locked = setOf("upper"))
+        }
+    }
+
+    @Test
+    fun scheduleWindows() = paparazzi.snapshot {
+        val w = locked.week.mapIndexed { i, d -> if (i == 2) d.copy(workout = "Upper + Stretch@20:00-22:00") else d }
+        val windows = mapOf("upper" to Window(360, 600), "stretch" to Window(21 * 60, 23 * 60))
+        AppFrame(Tab.Schedule, {}) { ScheduleScreen(locked, ScheduleMode.Week, {}, editor = null, weeks = listOf(w), week = 0,
+            windowOf = { _, n -> windows[n.lowercase()] }) }
     }
 
     @Test

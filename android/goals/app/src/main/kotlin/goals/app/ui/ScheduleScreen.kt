@@ -21,7 +21,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
-import goals.core.joinWorkouts
+import goals.core.PlanPart
+import goals.core.Window
+import goals.core.joinParts
+import goals.core.planLabel
+import goals.core.planParts
+import goals.core.windowText
 import goals.core.workoutParts
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -47,6 +52,8 @@ class DefaultWeekUi(
     /** The default week in effect today (7 names), to star what changes tomorrow. */
     val inEffect: List<String>,
     val workouts: List<String>,
+    /** Each workout's window from tomorrow (null: all day). */
+    val windowOf: (String) -> Window?,
     val minGymDays: Int,
     val loading: Boolean,
     val saving: Boolean,
@@ -73,11 +80,13 @@ fun ScheduleScreen(
     week: Int = 0,
     onWeek: (Int) -> Unit = {},
     weekEdit: WeekEditUi? = null,
+    /** A workout's window on a date (yyyy-mm-dd); null: all day or not known. */
+    windowOf: (String, String) -> Window? = { _, _ -> null },
 ) {
     TabPage(title = null) {
         InkSegments(ScheduleMode.entries.map { it.label }, mode.ordinal, { onMode(ScheduleMode.entries[it]) })
         when (mode) {
-            ScheduleMode.Week -> ThisWeek(status?.today, weeks, week.coerceIn(0, maxOf(0, weeks.size - 1)), onWeek, weekEdit)
+            ScheduleMode.Week -> ThisWeek(status?.today, weeks, week.coerceIn(0, maxOf(0, weeks.size - 1)), onWeek, weekEdit, windowOf)
             ScheduleMode.Default -> if (editor == null) {
                 InkText("Add gate.url and gate.token to local.properties to edit the schedule.")
             } else {
@@ -89,7 +98,8 @@ fun ScheduleScreen(
 
 /**
  * Editing the week on show: [draft] is its plan so far (null until a day is changed), saved on
- * the server with [onSave]. Days up to today stay locked.
+ * the server with [onSave]. Days before today are over; from today on, a workout locks an hour
+ * before its window (the day picker shows which).
  */
 class WeekEditUi(
     val draft: List<String>?,
@@ -102,7 +112,14 @@ class WeekEditUi(
 )
 
 @Composable
-private fun ColumnScope.ThisWeek(today: String?, weeks: List<List<WeekDay>>, index: Int, onWeek: (Int) -> Unit, edit: WeekEditUi?) {
+private fun ColumnScope.ThisWeek(
+    today: String?,
+    weeks: List<List<WeekDay>>,
+    index: Int,
+    onWeek: (Int) -> Unit,
+    edit: WeekEditUi?,
+    windowOf: (String, String) -> Window?,
+) {
     val days = weeks.getOrNull(index).orEmpty()
     val draft = edit?.draft?.takeIf { it.size == days.size }
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -115,7 +132,7 @@ private fun ColumnScope.ThisWeek(today: String?, weeks: List<List<WeekDay>>, ind
                 // Days that are over are gray; today is bold.
                 val past = today != null && d.date < today
                 @Composable {
-                    InkRow(dayHeader(d.date), starred(w, w != d.workout), onClick = tap, bold = d.date == today,
+                    InkRow(dayHeader(d.date), starred(planLabel(w) { windowOf(d.date, it) }, w != d.workout), onClick = tap, bold = d.date == today,
                         valueBold = isGymDay(w), color = if (past) Ink.Gray else Ink.Black)
                 }
             },
@@ -125,8 +142,8 @@ private fun ColumnScope.ThisWeek(today: String?, weeks: List<List<WeekDay>>, ind
     }
     if (edit != null && draft != null) {
         // The same checks as the server: known workouts, no minimum of gym days for a single week.
-        // A locked day keeps its workout even if it was removed since.
-        val known = edit.workouts + days.filter { it.locked }.flatMap { workoutParts(it.workout) }
+        // A day that has started keeps its workouts even if they were removed since.
+        val known = edit.workouts + days.filter { it.locked || it.date == today }.flatMap { workoutParts(it.workout) }
         val problems = defaultWeekErrors(draft, known, minGymDays = 0) + edit.errors
         if (problems.isNotEmpty()) InkError(problems.joinToString(" "))
         val canSave = problems.isEmpty() && !edit.saving
@@ -177,7 +194,7 @@ private fun ColumnScope.DefaultWeek(ui: DefaultWeekUi) {
         InkList(
             modifier = Modifier.weight(1f, fill = false),
             rows = draft.mapIndexed { i, w ->
-                @Composable { InkRow(weekdayName(i), starred(w, i in starred), onClick = { ui.onPickDay(i) }, valueBold = isGymDay(w)) }
+                @Composable { InkRow(weekdayName(i), starred(planLabel(w, ui.windowOf), i in starred), onClick = { ui.onPickDay(i) }, valueBold = isGymDay(w)) }
             },
         )
         if (starred.isNotEmpty()) InkNote("* Changes start tomorrow")
@@ -197,37 +214,86 @@ private fun ColumnScope.DefaultWeek(ui: DefaultWeekUi) {
 
 /**
  * Full-page choice of one day's plan: Rest, or one or more of [workouts] (checked boxes, done when
- * every one is met). [current] is the plan so far; Done hands back the new one.
+ * every one is met), each with its window: its workout's ([windowOf]) unless the day sets its own.
+ * [current] is the plan so far; Done hands back the new one. Workouts in [locked] (lower case)
+ * start within the hour and can't change.
  */
 @Composable
-fun DayPicker(day: Int, workouts: List<String>, current: String, onPick: (String) -> Unit, onCancel: () -> Unit) {
+fun DayPicker(
+    day: Int,
+    workouts: List<String>,
+    current: String,
+    onPick: (String) -> Unit,
+    onCancel: () -> Unit,
+    windowOf: (String) -> Window? = { null },
+    locked: Set<String> = emptySet(),
+) {
     var chosen by remember(day, current) {
-        mutableStateOf(workoutParts(current).filter { isGymDay(it) }.map { p -> workouts.firstOrNull { it.equals(p, true) } ?: p })
+        mutableStateOf(planParts(current).map { p -> p.copy(name = workouts.firstOrNull { it.equals(p.name, true) } ?: p.name) })
+    }
+    var timing by remember(day, current) { mutableStateOf<String?>(null) }
+    fun isLocked(name: String) = name.lowercase() in locked
+    timing?.let { name ->
+        val part = chosen.firstOrNull { it.name == name }
+        if (part != null) {
+            val usual = windowOf(name) ?: Window.ALL_DAY
+            fun set(w: Window?) { chosen = chosen.map { if (it.name == name) it.copy(window = w?.takeIf { it != usual }) else it } }
+            WindowEditor("$name on ${weekdayName(day)}", part.window ?: usual, { set(it) }, { timing = null }, onDefault = { set(null) })
+            return
+        }
     }
     TabPage(title = weekdayName(day)) {
         Column(Modifier.weight(1f)) {
             InkList(
                 modifier = Modifier.weight(1f, fill = false),
-                rows = listOf<@Composable () -> Unit>({ CheckRow(REST, chosen.isEmpty(), bold = false) { chosen = emptyList() } }) +
-                    workouts.map { w ->
-                        @Composable {
-                            val on = chosen.any { it.equals(w, true) }
+                rows = listOf<@Composable () -> Unit>({
+                    CheckRow(REST, chosen.isEmpty(), bold = false) { if (locked.isEmpty()) chosen = emptyList() }
+                }) + workouts.map { w ->
+                    @Composable {
+                        val part = chosen.firstOrNull { it.name.equals(w, true) }
+                        val fixed = isLocked(w)
+                        Column {
                             // Keep the order of [workouts], so the same days read the same.
-                            CheckRow(w, on, bold = true) { chosen = workouts.filter { o -> if (o == w) !on else chosen.any { it.equals(o, true) } } }
+                            CheckRow(if (fixed) "$w (locked)" else w, part != null, bold = true, color = if (fixed) Ink.Gray else Ink.Black) {
+                                if (!fixed) {
+                                    chosen = workouts.mapNotNull { o ->
+                                        val had = chosen.firstOrNull { it.name.equals(o, true) }
+                                        when {
+                                            o != w -> had
+                                            had != null -> null
+                                            else -> PlanPart(o)
+                                        }
+                                    } + chosen.filter { c -> workouts.none { it.equals(c.name, true) } }
+                                }
+                            }
+                            if (part != null) {
+                                val win = part.window ?: windowOf(w) ?: Window.ALL_DAY
+                                // Under the check box's label: when it locks apps; tapping changes it for this day.
+                                InkText(
+                                    "Locks apps ${windowText(win)}" + (if (part.window != null) " this day" else "") + (if (fixed) "" else "  ›"),
+                                    size = 20.sp,
+                                    color = if (fixed) Ink.Gray else Ink.Black,
+                                    modifier = Modifier.fillMaxWidth()
+                                        .then(if (fixed) Modifier else Modifier.clickable(interactionSource = null, indication = null, role = Role.Button) { timing = w })
+                                        .padding(start = 64.dp, end = 20.dp, bottom = 12.dp),
+                                )
+                            }
                         }
-                    },
+                    }
+                },
             )
         }
+        if (locked.isNotEmpty()) InkNote("A workout can change until an hour before it locks apps.")
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             InkButton("Cancel", onCancel, Modifier.weight(1f), filled = false)
-            InkButton("Done", { onPick(joinWorkouts(chosen)) }, Modifier.weight(1f))
+            InkButton("Done", { onPick(joinParts(chosen)) }, Modifier.weight(1f))
         }
     }
 }
 
 /** A list row with a check box in front of [label]; tapping it toggles. */
 @Composable
-fun CheckRow(label: String, checked: Boolean, bold: Boolean, onClick: () -> Unit) {
+fun CheckRow(label: String, checked: Boolean, bold: Boolean, color: androidx.compose.ui.graphics.Color = Ink.Black, onClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth()
             .clickable(interactionSource = null, indication = null, role = Role.Checkbox, onClick = onClick)
@@ -236,7 +302,7 @@ fun CheckRow(label: String, checked: Boolean, bold: Boolean, onClick: () -> Unit
         verticalAlignment = Alignment.CenterVertically,
     ) {
         InkCheck(checked, size = 28.dp)
-        InkText(label, size = 22.sp, bold = bold)
+        InkText(label, size = 22.sp, bold = bold, color = color)
     }
 }
 

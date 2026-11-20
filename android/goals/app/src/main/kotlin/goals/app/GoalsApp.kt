@@ -24,6 +24,20 @@ import goals.app.data.SampleStatusSource
 import goals.app.data.StatusSource
 import goals.app.data.StatusSources
 import goals.app.data.StatusStore
+import goals.app.data.UnlockStore
+import goals.app.ui.CodeScreen
+import goals.app.ui.GateExtras
+import goals.app.ui.WindowEditor
+import goals.core.CodeResult
+import goals.core.Window
+import goals.core.allowanceReady
+import goals.core.clockText
+import goals.core.minuteOfDay
+import goals.core.planParts
+import goals.core.tryCode
+import goals.core.windowLocked
+import goals.core.windowsOn
+import kotlinx.coroutines.delay
 import goals.app.ui.AllowlistScreen
 import goals.app.ui.AppFrame
 import goals.app.ui.DayPicker
@@ -60,9 +74,17 @@ private object Fetches {
     var failures = 0
 }
 
+/** How often the screen re-judges the time: windows opening and closing, the allowance running out. */
+private const val TICK_MS = 15_000L
+
 @Composable
-fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = null) {
+fun GoalsApp(store: StatusStore, unlockStore: UnlockStore, source: StatusSource, onOpen: (() -> Unit)? = null) {
     var cached by remember { mutableStateOf(store.load()) }
+    var unlocks by remember { mutableStateOf(unlockStore.load()) }
+    var now by remember { mutableStateOf(Instant.now()) }
+    var enteringCode by remember { mutableStateOf(false) }
+    var codeMessage by remember { mutableStateOf<String?>(null) }
+    var editingWindow by rememberSaveable { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf(Tab.Status) }
@@ -119,11 +141,58 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     val schedule = remember(client) { client?.let { ScheduleModel(it, scope, onSaved = check) } }
     // The gate over a blocked app fetches less often than opening the app itself.
     LaunchedEffect(Unit) { fetch(if (onOpen != null) RefreshTrigger.GATED_APP_OPENED else RefreshTrigger.USER) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(TICK_MS)
+            now = Instant.now()
+            unlocks = unlockStore.load()
+        }
+    }
 
     // The sheet's time zone once a status has given it, else the device's.
     val zone = cached?.timeZone?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.systemDefault()
-    val state = gateState(cached, Instant.now(), ZoneId.systemDefault())
+    val minute = minuteOfDay(now, zone)
+    // [state] decides whether the gate goes away; the Status tab shows the status itself ([plain]).
+    val state = gateState(cached, now, ZoneId.systemDefault(), unlocks)
+    val plain = gateState(cached, now, ZoneId.systemDefault())
     if (state == GateState.Open && onOpen != null) LaunchedEffect(Unit) { onOpen() }
+
+    fun keep(u: goals.core.Unlocks) {
+        unlocks = u
+        unlockStore.save(u)
+    }
+    val extras = GateExtras(
+        allowanceAt = allowanceReady(unlocks, now)?.let { clockText(minuteOfDay(it, zone)) },
+        onAllowance = {
+            val t = Instant.now()
+            if (allowanceReady(unlocks, t) == null) { now = t; keep(unlocks.copy(allowanceStart = t.toEpochMilli())) }
+        },
+        onCode = { codeMessage = null; enteringCode = true },
+    )
+    if (enteringCode) {
+        BackHandler { enteringCode = false }
+        CodeScreen(
+            codeMessage,
+            onSubmit = { code ->
+                val t = Instant.now()
+                val token = BuildConfig.GATE_TOKEN
+                if (token.isBlank()) {
+                    codeMessage = "This build has no gate.token, so it can't check codes."
+                } else {
+                    val (r, u) = tryCode(unlocks, code, token, t.atZone(zone).toLocalDate().toString(), t)
+                    keep(u)
+                    now = t
+                    codeMessage = when (r) {
+                        CodeResult.Opened -> { enteringCode = false; null }
+                        is CodeResult.Wrong -> "Wrong code. ${r.triesLeft} ${if (r.triesLeft == 1) "try" else "tries"} left."
+                        is CodeResult.Wait -> "Too many wrong codes. Try again at ${clockText(minuteOfDay(r.until, zone))}."
+                    }
+                }
+            },
+            onCancel = { enteringCode = false },
+        )
+        return
+    }
 
     val status = cached
     val debugUnlock: (() -> Unit)? = if (BuildConfig.DEBUG && source === SampleStatusSource) {
@@ -141,6 +210,8 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
             onCheckAgain = check,
             onDebugUnlock = debugUnlock,
             onSkip = skip,
+            session = (state as? GateState.Locked)?.session,
+            extras = extras,
         )
     }
     if (onOpen != null) {
@@ -150,8 +221,8 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
     AppFrame(tab, { tab = it }) {
         when (tab) {
             Tab.Status ->
-                if (status != null && (state == GateState.Open || state is GateState.Locked)) {
-                    HomeScreen(status, HomeCheck(checking, error, check, debugUnlock, skip))
+                if (status != null && (plain == GateState.Open || plain is GateState.Locked)) {
+                    HomeScreen(status, HomeCheck(checking, error, check, debugUnlock, skip), minute)
                 } else {
                     gate()
                 }
@@ -160,7 +231,23 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                 val picking = schedule?.picking
                 if (schedule != null && picking != null) {
                     BackHandler { schedule.picking = null }
-                    DayPicker(picking.day, schedule.view?.workouts.orEmpty(), schedule.picked(picking), { schedule.pick(picking, it) }, { schedule.picking = null })
+                    val v = schedule.view
+                    // The date picked (the default week: from tomorrow) gives the workouts' windows.
+                    val date = when (picking) {
+                        is PickTarget.Week -> schedule.savedWeek(picking.week).getOrNull(picking.day)?.date
+                        is PickTarget.Default -> v?.today?.let { LocalDate.parse(it).plusDays(1).toString() }
+                    }
+                    val windows: (String) -> Window? = if (v != null && date != null) windowsOn(v, date) else ({ null })
+                    // Saved workouts that start within the hour stay as they are.
+                    val locked = if (picking is PickTarget.Week && date != null) {
+                        planParts(schedule.savedWeek(picking.week)[picking.day].workout)
+                            .filter { p -> windowLocked(LocalDate.parse(date), (p.window ?: windows(p.name) ?: Window.ALL_DAY).start, Instant.now(), zone) }
+                            .map { it.name.lowercase() }.toSet()
+                    } else {
+                        emptySet()
+                    }
+                    DayPicker(picking.day, v?.workouts.orEmpty(), schedule.picked(picking), { schedule.pick(picking, it) }, { schedule.picking = null },
+                        windowOf = windows, locked = locked)
                 } else {
                     // The schedule has this week and next; until it loads, the status has this week.
                     val weeks = schedule?.view?.weeks?.map { it.days }?.takeIf { it.isNotEmpty() } ?: listOfNotNull(status?.week)
@@ -176,7 +263,9 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                             onSave = { schedule.saveWeek(shown) },
                         )
                     }
-                    ScheduleScreen(status, scheduleMode, { scheduleMode = it }, schedule?.editor(), weeks, shown, { weekShown = it }, weekEdit)
+                    val v = schedule?.view
+                    ScheduleScreen(status, scheduleMode, { scheduleMode = it }, schedule?.editor(), weeks, shown, { weekShown = it }, weekEdit,
+                        windowOf = { date, name -> v?.let { windowsOn(it, date)(name) } })
                 }
             }
             Tab.Goals -> {
@@ -188,7 +277,15 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                         schedule.goalsDraft = draft.toMutableList().also { if (w == null) it.removeAt(open) else it[open] = w }
                         schedule.goalsSaver.errors = emptyList()
                     }
-                    if (addingGoal) {
+                    if (editingWindow) {
+                        BackHandler { editingWindow = false }
+                        WindowEditor(
+                            "${draft[open].name.ifBlank { "Workout" }} locks apps",
+                            draft[open].gated,
+                            { w -> update(draft[open].copy(window = w.takeIf { !it.allDay }?.format())) },
+                            { editingWindow = false },
+                        )
+                    } else if (addingGoal) {
                         BackHandler { addingGoal = false }
                         AddGoal({ r -> update(draft[open].copy(rules = draft[open].rules + r)); addingGoal = false }, { addingGoal = false })
                     } else {
@@ -199,6 +296,7 @@ fun GoalsApp(store: StatusStore, source: StatusSource, onOpen: (() -> Unit)? = n
                             onAddGoal = { addingGoal = true },
                             onDelete = { update(null); schedule.editingWorkout = null },
                             onDone = { schedule.editingWorkout = null },
+                            onWindow = { editingWindow = true },
                         )
                     }
                 } else {

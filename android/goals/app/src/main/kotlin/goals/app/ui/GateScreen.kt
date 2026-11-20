@@ -18,13 +18,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import goals.core.GoalProgress
 import goals.core.MAX_TOKENS
+import goals.core.Session
 import goals.core.Status
+import goals.core.clockText
+import goals.core.planNames
+
+/**
+ * The gate's ways out besides doing the workout: the allowance ([allowanceAt] is when it can be
+ * used again, null when it can now) and typing an unlock code.
+ */
+class GateExtras(val allowanceAt: String?, val onAllowance: () -> Unit, val onCode: () -> Unit)
 
 /**
  * The gate (mock: "Gate (locked)"). [today] (yyyy-mm-dd) heads the screen. [status] is the
  * last status fetched; [unknownReason] is set when it can't vouch for today, in which case
- * the goals list is left out.
+ * the goals list is left out. [session] is the workout whose window gates now.
  */
 @Composable
 fun GateScreen(
@@ -36,6 +46,8 @@ fun GateScreen(
     onCheckAgain: () -> Unit,
     onDebugUnlock: (() -> Unit)?,
     onSkip: (() -> Unit)? = null,
+    session: Session? = null,
+    extras: GateExtras? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().background(Ink.White).systemBarsPadding().padding(Ink.Gutter),
@@ -46,7 +58,7 @@ fun GateScreen(
             InkText("Gym first.", size = 44.sp, bold = true)
             InkText(
                 if (unknownReason == null && status != null) {
-                    "Apps are locked until today's ${status.workout} workout is in your log."
+                    lockedText(status, session)
                 } else {
                     "Apps are locked until today's status is checked. $unknownReason"
                 },
@@ -55,7 +67,7 @@ fun GateScreen(
 
         // The goals take the space left over and scroll inside their box when there are many.
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            if (unknownReason == null && status != null) GoalsList(status, Modifier.weight(1f, fill = false))
+            if (unknownReason == null && status != null) GoalsList(status, Modifier.weight(1f, fill = false), session?.goalsProgress)
             if (status != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     StatBox("${status.streak}", "day streak", Modifier.weight(1f))
@@ -64,18 +76,26 @@ fun GateScreen(
             }
         }
 
-        CheckButtons(status, checking, error, onCheckAgain, onDebugUnlock, onSkip = onSkip)
+        CheckButtons(status, checking, error, onCheckAgain, onDebugUnlock, onSkip = onSkip, extras = extras)
     }
 }
 
-/** Today's goals and progress, or a note when today's workout has no goals. */
+/** "Apps are locked until Upper is in your log, or until 10:00." */
+fun lockedText(status: Status, session: Session?): String = when {
+    session == null -> "Apps are locked until today's ${planNames(status.workout)} workout is in your log."
+    session.window.allDay -> "Apps are locked until today's ${session.workout} workout is in your log."
+    else -> "Apps are locked until ${session.workout} is in your log, or until ${clockText(session.window.end)}."
+}
+
+/** [goals] (else all of today's) and their progress, or a note when today's workout has no goals. */
 @Composable
-fun GoalsList(status: Status, modifier: Modifier = Modifier) {
-    if (status.goalsProgress.isNotEmpty()) {
+fun GoalsList(status: Status, modifier: Modifier = Modifier, goals: List<GoalProgress>? = null) {
+    val shown = goals ?: status.goalsProgress
+    if (shown.isNotEmpty()) {
         InkList(
             modifier = modifier,
             rows =
-            status.goalsProgress.map { g ->
+            shown.map { g ->
                 @Composable {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -91,7 +111,7 @@ fun GoalsList(status: Status, modifier: Modifier = Modifier) {
         )
     }
     if (status.unknownWorkout) {
-        InkText("\"${status.workout}\" isn't one of your workouts any more. Fix the goals, then check again.")
+        InkText("\"${planNames(status.workout)}\" isn't one of your workouts any more. Fix the goals, then check again.")
     }
 }
 
@@ -126,9 +146,18 @@ fun CheckButtons(
     onDebugUnlock: (() -> Unit)?,
     caption: Boolean = true,
     onSkip: (() -> Unit)? = null,
+    extras: GateExtras? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         if (onSkip != null && status?.canSkip == true) SkipButton(status, onSkip)
+        if (extras != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                val m = Modifier.weight(1f)
+                if (extras.allowanceAt == null) InkButton("2 minutes", extras.onAllowance, m, filled = false, height = 56.dp, size = 20.sp)
+                else InkButton("2 min at ${extras.allowanceAt}", {}, m, filled = false, height = 56.dp, size = 20.sp)
+                InkButton("Enter code", extras.onCode, m, filled = false, height = 56.dp, size = 20.sp)
+            }
+        }
         if (onDebugUnlock != null) {
             InkButton("I finished (debug)", onDebugUnlock, Modifier.fillMaxWidth(), filled = false)
         }

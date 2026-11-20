@@ -129,8 +129,18 @@ class NoticeTest {
     @Test
     fun saysWhatIsLockedAndTheStreak() {
         assertEquals(Notice("Locked · Upper · 1 of 3 goals", "Streak 12 · Tokens 1 of 2"), notice(GateState.Locked(status), status))
-        assertEquals(Notice("Done for today · Upper", "Streak 12 · Tokens 1 of 2"), notice(GateState.Open, status))
+        assertEquals(Notice("Done for today · Upper", "Streak 12 · Tokens 1 of 2"), notice(GateState.Open, status.copy(done = true, open = true)))
+        assertEquals("Open · Upper not done yet", notice(GateState.Open, status).title)
         assertEquals("Rest day", notice(GateState.Open, status.copy(todayScheduled = false)).title)
         assertEquals(Notice("Locked · today not checked yet", "Not checked yet."), notice(GateState.Unknown("Not checked yet."), null))
+    }
+
+    @Test
+    fun saysWhichWindowLocksAndWhichComesNext() {
+        val upper = Session("Upper", "06:00", "10:00", goalsProgress = status.goalsProgress)
+        val stretch = Session("Stretch", "21:00", "23:00")
+        val s = status.copy(sessions = listOf(upper, stretch))
+        assertEquals("Locked · Upper until 10:00 · 1 of 3 goals", notice(GateState.Locked(s, upper), s).title)
+        assertEquals("Open · Stretch gates at 21:00", notice(GateState.Open, s, minute = 12 * 60).title)
     }
 }
